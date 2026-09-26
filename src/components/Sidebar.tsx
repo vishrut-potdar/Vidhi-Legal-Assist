@@ -16,6 +16,7 @@ import {
   PinOff,
   Cpu,
   Trash2,
+  LogOut,
 } from 'lucide-react';
 import { Language } from '../types';
 import { uiTranslations } from '../data/mockData';
@@ -38,6 +39,8 @@ interface SidebarProps {
   activeDocTitle?: string;
   hasActiveDoc?: boolean;
   onClearData?: () => void;
+  signedInEmail?: string;
+  onSignOut?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -57,6 +60,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   activeDocTitle,
   hasActiveDoc = false,
   onClearData,
+  signedInEmail,
+  onSignOut,
 }) => {
   const t = uiTranslations[language];
   const [isHoverExpanded, setIsHoverExpanded] = useState<boolean>(false);
@@ -579,20 +584,32 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
           ))}
 
-        {/* User Profile */}
-        <div className={`flex items-center gap-3 pt-1 ${!isEffectivelyExpanded ? 'justify-center' : ''}`}>
-          <div className="w-8 h-8 rounded-full bg-[#C38A2E] text-[#171714] font-bold text-xs flex items-center justify-center shrink-0 select-none">
-            RM
+        {/* Signed-in account */}
+        <div className={`flex items-center gap-3 pt-1 ${!isEffectivelyExpanded ? 'flex-col justify-center' : ''}`}>
+          <div
+            className="w-8 h-8 rounded-full bg-[#C38A2E] text-[#171714] font-bold text-xs flex items-center justify-center shrink-0 select-none uppercase"
+            aria-hidden="true"
+          >
+            {(signedInEmail || '?').slice(0, 1)}
           </div>
           {isEffectivelyExpanded && (
-            <div className="overflow-hidden">
-              <p className="text-xs font-medium text-[#FAF8F5] leading-tight">
-                Rohan Mehta
-              </p>
-              <p className="text-[10px] text-[#8C887B] tracking-wider uppercase font-mono mt-0.5">
-                PUNE, MH
+            <div className="overflow-hidden flex-1 min-w-0">
+              <p className="text-[10px] text-[#8C887B] tracking-wider uppercase font-mono">Signed in as</p>
+              <p className="text-xs font-medium text-[#FAF8F5] leading-tight truncate" title={signedInEmail}>
+                {signedInEmail}
               </p>
             </div>
+          )}
+          {onSignOut && (
+            <button
+              type="button"
+              onClick={onSignOut}
+              className="p-1.5 rounded text-[#A8A49A] hover:text-white hover:bg-[#282622] shrink-0"
+              title="Sign out"
+              aria-label="Sign out"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
           )}
         </div>
       </div>

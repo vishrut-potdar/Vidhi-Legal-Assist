@@ -17,6 +17,7 @@ import {
 import { analyzeDocumentStreaming, AnalysisEvent, DocumentAnalysisInput } from './documentAnalysis.js';
 import { enforceHttps, rateLimit, securityHeaders } from './security.js';
 import { hasGeminiKey, normalizeLanguage, normalizeReadingLevel } from './aiShared.js';
+import { loginHandler, logoutHandler, requireSession, sessionHandler } from './auth.js';
 
 const MAX_UPLOAD_BYTES = 12 * 1024 * 1024; // decoded file size
 const ALLOWED_UPLOAD_TYPES = [
@@ -96,6 +97,15 @@ export function createApp() {
   app.get('/api/status', (_req, res) => {
     res.json({ aiMode: hasGeminiKey() ? 'gemini' : 'offline' });
   });
+
+  // Authentication (public). Login gets its own strict limit against guessing.
+  const loginLimiter = rateLimit({ windowMs: RATE_WINDOW, max: 10, name: 'sign-in attempts' });
+  app.post('/api/auth/login', loginLimiter, loginHandler);
+  app.post('/api/auth/logout', logoutHandler);
+  app.get('/api/auth/session', sessionHandler);
+
+  // Every other API route requires a signed-in session.
+  app.use('/api', requireSession);
 
   // Pipeline API: Process document according to architecture diagram
   app.post('/api/pipeline/process', async (req, res) => {

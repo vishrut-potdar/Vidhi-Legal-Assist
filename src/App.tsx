@@ -32,6 +32,7 @@ import { UploadModal, AnalyzedDocumentResult } from './components/UploadModal';
 import { AskQuestionModal } from './components/AskQuestionModal';
 import { GeminiChatbot } from './components/GeminiChatbot';
 import { ReadingLevelToggle } from './components/ReadingLevelToggle';
+import { useAuth } from './components/AuthGate';
 
 // Workspace views and heavy modals are code-split so the first load (upload screen) stays small on mobile data.
 const named = <T extends Record<string, any>, K extends keyof T>(loader: () => Promise<T>, key: K) =>
@@ -75,6 +76,7 @@ export interface IngestedDocument {
 }
 
 export default function App() {
+  const { email: signedInEmail, signOut } = useAuth();
   const [language, setLanguage] = useState<Language>('EN');
   const [currentTab, setCurrentTab] = useState<string>('home');
   // Default to auto-hidden taskbar so hovering near screen edge reveals it immediately
@@ -572,6 +574,8 @@ export default function App() {
         activeDocTitle={activeDoc ? activeDoc.documentInfo.title : undefined}
         hasActiveDoc={documentLibrary.length > 0 && !!activeDoc}
         onClearData={handleClearAllData}
+        signedInEmail={signedInEmail}
+        onSignOut={signOut}
       />
 
       {/* Main Workspace Column */}
