@@ -1,0 +1,7 @@
+{
+  "name": "Vidhi — Plain-Language Legal Assistant",
+  "description": "Citizen-first legal assistant for document risk review, plain-language explanations, advocate briefs, and legal-system literacy.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+

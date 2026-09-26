@@ -1,0 +1,80 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --color-page: #F3F0E8;
+    --color-surface: #FCFBF7;
+    --color-surface-muted: #F7F4EC;
+    --color-surface-dark: #171714;
+
+    --color-text: #1C1C19;
+    --color-text-secondary: #6F6D65;
+    --color-text-muted: #96938A;
+    --color-text-on-dark: #F7F5EF;
+
+    --color-border: #DDD9CE;
+    --color-border-strong: #C9C4B7;
+
+    --color-accent: #C38A2E;
+    --color-accent-soft: #F2E6C9;
+
+    --color-risk-high: #B44738;
+    --color-risk-high-soft: #F5E3DE;
+
+    --color-risk-medium: #B08427;
+    --color-risk-medium-soft: #F3ECD7;
+
+    --color-risk-low: #58735C;
+    --color-risk-low-soft: #E6EEE6;
+
+    --color-white: #FFFFFF;
+
+    --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    --font-serif: 'Newsreader', Georgia, serif;
+    --font-devanagari: 'Noto Sans Devanagari', 'Plus Jakarta Sans', sans-serif;
+  }
+
+  body {
+    background-color: var(--color-page);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    line-height: 1.5;
+  }
+}
+
+.font-legal {
+  font-family: var(--font-serif);
+}
+
+.font-devanagari {
+  font-family: var(--font-devanagari);
+}
+
+/* Custom subtle scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #DDD9CE;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #C9C4B7;
+}
+
+@media print {
+  body {
+    background: #FFFFFF !important;
+    color: #000000 !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+}
