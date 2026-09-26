@@ -21,7 +21,7 @@ import { GoogleGenAI } from '@google/genai';
 import { glossaryItems } from '../data/mockData.js';
 import { applyMaskingLayer1, applyMaskingLayer2, maskPII, MaskedEntity } from './pii.js';
 import { UNTRUSTED_CONTENT_RULES, sanitizeUntrustedText, wrapUntrusted } from './security.js';
-import { ReadingLevel, getGeminiClient, hasGeminiKey, readingLevelInstruction } from './aiShared.js';
+import { DEFAULT_MODEL, ReadingLevel, getGeminiClient, hasGeminiKey, readingLevelInstruction } from './aiShared.js';
 import { TTLCache, hashKey, isCacheableBoilerplate, normalizeClauseText } from './cache.js';
 import { analyzeDocumentStreaming } from './documentAnalysis.js';
 import type { AnalyzedDocumentPayload, DocumentAnalysisInput } from './documentAnalysis.js';
@@ -754,15 +754,7 @@ export async function askLegalQuestionWithAI(
 
   const defaultContext =
     documentContext ||
-    `SALE DEED OF FLAT 402, KALYANI NAGAR, PUNE. Total consideration ₹86,00,000/-. Advance earnest money ₹17,20,000/- paid via RTGS. Balance consideration ₹68,80,000/- payable on registration.
-Clause 4: Balance payment payable irrespective of issuance of NOC from State Bank of India regarding satisfaction of mortgage charge.
-Clause 5: Title subject to encumbrances set forth in missing Schedule III.
-Clause 6: Possession keys handover to be completed within reasonable time; maintenance and outgoings payable by purchaser from date hereof.
-Clause 9: Time of essence for payment by purchaser, but time not of essence for vendor to deliver vacant keys.
-Clause 11: Vendor sole executing party; other legal co-owner not executing deed nor providing Power of Attorney.
-Clause 14: Sole arbitrator nominated exclusively by Vendor. Seat at Pune.
-Clause 16: Vendor title warranty and indemnity limited to 12 months from registration.
-Schedule B: Includes one covered stilt car parking space P-14 and proportionate undivided share in land.`;
+    'No document has been uploaded yet. Only general Indian property-law questions can be answered; for questions about "my deed" set isGroundedInDocument to false and ask the citizen to upload the document.';
 
   const apiKey = process.env.GEMINI_API_KEY;
 
@@ -778,10 +770,10 @@ Schedule B: Includes one covered stilt car parking space P-14 and proportionate 
       });
 
       const systemInstruction = `You are Vidhi AI, an expert Indian legal assistant for residential conveyance deeds in Maharashtra.
-You are helping a citizen understand their 18-page Sale Deed draft for Flat 402, Kalyani Nagar, Pune.
+You are helping a citizen understand the legal document provided below as context.
 
 STRICT GROUNDING DIRECTIVE:
-1. If the question pertains to facts, terms, numbers, or rights explicitly mentioned in the document (price ₹86L, advance ₹17.2L, balance ₹68.8L, SBI loan, parking P-14, indemnity 12 months, arbitration Clause 14, keys handover), answer accurately in plain language. Always cite the clause and page number if applicable.
+1. If the question pertains to facts, terms, numbers, or rights explicitly mentioned in the document (price, payments, loans, possession, indemnity, arbitration, parking, etc.), answer accurately in plain language. Always cite the clause and page number if applicable.
 2. If the user asks for private personal data (PAN, Aadhaar, bank account numbers, phone numbers) or items completely unmentioned (maintenance bills amount, society elections, criminal antecedents), DO NOT invent answers. Set isGroundedInDocument to false, refuse to speculate, and explain that the deed does not contain this information.
 3. Language of response: ${language === 'HI' ? 'Hindi (हिंदी)' : language === 'MR' ? 'Marathi (मराठी)' : 'English'}.
 4. ${readingLevelInstruction(readingLevel)}
@@ -1063,7 +1055,7 @@ function buildChatRequest(
   const context = sanitizeUntrustedText(
     maskPII(
       documentContext ||
-        '18-page Sale Deed draft for Flat 402, 4th Floor, Gulmohar Enclave CHSL, Kalyani Nagar, Pune 411006. Vendor: Shri Rajesh S. Verma. Purchaser: Rohan Sharma. Agreed consideration: ₹86 Lakhs. Key issues: Outstanding SBI housing loan mortgage without pre-registration release, unspecific possession handover timeline, and 12-month defect liability limitation.'
+        'No document has been uploaded yet. Answer general questions about Indian property law and documents; if the citizen asks about "my deed" or a specific clause, ask them to upload the document first.'
     ).maskedText.slice(0, 8000)
   ).text;
 
@@ -1130,18 +1122,20 @@ export async function handleChatWithAI(
   const { selectedModel, contents, systemInstruction } = buildChatRequest(messages, documentContext, language, modelRole, readingLevel);
 
   if (hasGeminiKey()) {
-    try {
-      const response = await getGeminiClient().models.generateContent({
-        model: selectedModel,
-        contents,
-        config: { systemInstruction, temperature: 0.6 },
-      });
-      const reply = response.text;
-      if (reply && reply.trim().length > 0) {
-        return { reply: reply.trim(), modelUsed: selectedModel, timestamp: new Date().toISOString() };
+    for (const model of modelsToTry(selectedModel)) {
+      try {
+        const response = await getGeminiClient().models.generateContent({
+          model,
+          contents,
+          config: { systemInstruction, temperature: 0.6 },
+        });
+        const reply = response.text;
+        if (reply && reply.trim().length > 0) {
+          return { reply: reply.trim(), modelUsed: model, timestamp: new Date().toISOString() };
+        }
+      } catch (err: any) {
+        console.warn(`Gemini Chat (${model}) API call failed:`, err?.message || err);
       }
-    } catch (err: any) {
-      console.warn(`Gemini Chat (${selectedModel}) API call failed, falling back to legal rules engine:`, err?.message || err);
     }
   }
 
@@ -1163,34 +1157,68 @@ export async function streamChatWithAI(
   modelRole: 'general' | 'deep' | 'fast',
   readingLevel: ReadingLevel,
   onDelta: (text: string) => void
-): Promise<{ modelUsed: string; offline: boolean }> {
+): Promise<{ modelUsed: string; offline: boolean; notice?: string }> {
   const { selectedModel, contents, systemInstruction } = buildChatRequest(messages, documentContext, language, modelRole, readingLevel);
 
+  let lastError = '';
   if (hasGeminiKey()) {
-    let sentAny = false;
-    try {
-      const stream = await getGeminiClient().models.generateContentStream({
-        model: selectedModel,
-        contents,
-        config: { systemInstruction, temperature: 0.6 },
-      });
-      for await (const chunk of stream) {
-        const text = chunk.text;
-        if (text) {
-          sentAny = true;
-          onDelta(text);
+    const failed: string[] = [];
+    for (const model of modelsToTry(selectedModel)) {
+      let sentAny = false;
+      try {
+        const stream = await getGeminiClient().models.generateContentStream({
+          model,
+          contents,
+          config: { systemInstruction, temperature: 0.6 },
+        });
+        for await (const chunk of stream) {
+          const text = chunk.text;
+          if (text) {
+            sentAny = true;
+            onDelta(text);
+          }
         }
+        if (sentAny) {
+          return {
+            modelUsed: model,
+            offline: false,
+            notice: failed.length ? `${failed.join(', ')} is not available with this API key, so ${model} answered instead.` : undefined,
+          };
+        }
+      } catch (err: any) {
+        console.warn(`Gemini streaming chat (${model}) failed:`, err?.message || err);
+        lastError = describeGeminiError(err);
+        // Part of an answer already reached the user: do not append another reply.
+        if (sentAny) return { modelUsed: `${model} (interrupted)`, offline: false, notice: 'The answer was cut off. Please ask again.' };
+        failed.push(model);
       }
-      if (sentAny) return { modelUsed: selectedModel, offline: false };
-    } catch (err: any) {
-      console.warn(`Gemini streaming chat (${selectedModel}) failed:`, err?.message || err);
-      // Part of an answer already reached the user: do not append an unrelated canned reply.
-      if (sentAny) return { modelUsed: `${selectedModel} (interrupted)`, offline: false };
     }
   }
 
   onDelta(chatFallbackReply(messages, language));
-  return { modelUsed: `${selectedModel} (Local Legal Rules Fallback)`, offline: true };
+  return {
+    modelUsed: 'Offline rule engine',
+    offline: true,
+    notice: hasGeminiKey()
+      ? `Gemini could not be reached (${lastError || 'empty response'}). This is a pre-written answer, not AI.`
+      : 'Gemini is not configured on the server. This is a pre-written answer, not AI.',
+  };
+}
+
+/** Selected model first, then the default model as a fallback. */
+function modelsToTry(selectedModel: string): string[] {
+  return selectedModel === DEFAULT_MODEL ? [selectedModel] : [selectedModel, DEFAULT_MODEL];
+}
+
+/** Short, user-safe description of a Gemini API failure. */
+function describeGeminiError(err: any): string {
+  const msg = String(err?.message || err || '');
+  const status = Number(err?.status || err?.code || (msg.match(/\b(4\d\d|5\d\d)\b/) || [])[1]);
+  if (status === 429 || /quota|rate limit|RESOURCE_EXHAUSTED/i.test(msg)) return 'API quota or rate limit reached';
+  if (status === 401 || status === 403 || /API key|PERMISSION_DENIED/i.test(msg)) return 'API key rejected';
+  if (status === 404 || /not found|NOT_FOUND/i.test(msg)) return 'model not available for this key';
+  if (status >= 500) return 'Gemini service error';
+  return 'request failed';
 }
 
 /**

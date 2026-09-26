@@ -20,6 +20,7 @@ export interface ChatMessageItem {
   content: string;
   timestamp: string;
   modelUsed?: string;
+  notice?: string;
 }
 
 interface GeminiChatbotProps {
@@ -29,6 +30,7 @@ interface GeminiChatbotProps {
   onLanguageChange?: (lang: Language) => void;
   initialQuestion?: string;
   documentContext?: string;
+  documentTitle?: string;
   onAddQuestionToBrief?: (question: string) => void;
 }
 
@@ -39,6 +41,7 @@ export const GeminiChatbot: React.FC<GeminiChatbotProps> = ({
   onLanguageChange,
   initialQuestion,
   documentContext,
+  documentTitle,
   onAddQuestionToBrief,
 }) => {
   const [messages, setMessages] = useState<ChatMessageItem[]>([
@@ -46,7 +49,7 @@ export const GeminiChatbot: React.FC<GeminiChatbotProps> = ({
       id: 'welcome-1',
       role: 'assistant',
       content:
-        'Welcome to Vidhi Legal Assistant. I can help you inspect your Flat 402 Kalyani Nagar Sale Deed, explain statutory conveyancing rules under the Maharashtra Ownership Flats Act and RERA, identify unilateral vendor traps, or prepare clear questions for your property advocate. What would you like to review?',
+        'Welcome to Vidhi Legal Assistant. Ask me about any clause in your document, Indian property law (RERA, stamp duty, registration, encumbrance certificates), one-sided terms to watch for, or what to ask your advocate before signing.',
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       modelUsed: 'gemini-3.8-flash',
     },
@@ -104,12 +107,19 @@ export const GeminiChatbot: React.FC<GeminiChatbotProps> = ({
 
   if (!isOpen) return null;
 
-  const quickPrompts = [
-    'Explain Clause 4 regarding mortgage clearance in plain language.',
-    'What is the difference between Form 15 and Form 16 in an Encumbrance Certificate?',
-    'What questions should I ask my lawyer before signing at the Sub-Registrar?',
-    'Is the 12-month defect liability sufficient for a 10-year-old flat?',
-  ];
+  const quickPrompts = documentContext
+    ? [
+        'Summarise the biggest risks in my document in plain language.',
+        'Which clauses should I ask my advocate to change before signing?',
+        'What documents should I collect before registration?',
+        'What is the difference between Form 15 and Form 16 in an Encumbrance Certificate?',
+      ]
+    : [
+        'What is the difference between Form 15 and Form 16 in an Encumbrance Certificate?',
+        'What questions should I ask my lawyer before signing at the Sub-Registrar?',
+        'How is stamp duty calculated for a flat purchase in Maharashtra?',
+        'What should a fair possession clause say?',
+      ];
 
   const sendMessage = async (textToSend?: string) => {
     const text = (textToSend || input).trim();
@@ -172,7 +182,7 @@ export const GeminiChatbot: React.FC<GeminiChatbotProps> = ({
           }
           appendToBot(event.text);
         } else if (event.type === 'done') {
-          setMessages((prev) => prev.map((m) => (m.id === botId ? { ...m, modelUsed: event.modelUsed } : m)));
+          setMessages((prev) => prev.map((m) => (m.id === botId ? { ...m, modelUsed: event.modelUsed, notice: event.notice } : m)));
         } else if (event.type === 'error') {
           throw new Error(event.message || 'Chat failed');
         }
@@ -218,7 +228,7 @@ export const GeminiChatbot: React.FC<GeminiChatbotProps> = ({
         id: `welcome-${Date.now()}`,
         role: 'assistant',
         content:
-          'Conversation reset. You are examining the 18-page Kalyani Nagar Sale Deed draft. Ask me to break down any clause, check legal compliance, or prepare advocate queries.',
+          'Conversation reset. Ask me to explain a clause, check a legal requirement, or prepare questions for your advocate.',
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         modelUsed: 'gemini-3.8-flash',
       },
@@ -342,7 +352,7 @@ export const GeminiChatbot: React.FC<GeminiChatbotProps> = ({
         <div className="px-4 py-2 bg-[#F6F3EB] border-b border-[#E8E4D9] flex items-center justify-between text-[11px] font-mono text-[#6F6D65]">
           <div className="flex items-center gap-1.5 truncate">
             <span className="w-1.5 h-1.5 rounded-full bg-[#C38A2E]" />
-            <span className="truncate">Active Context: Flat 402 Kalyani Nagar Sale Deed (18 Pages)</span>
+            <span className="truncate">{documentTitle ? `Active document: ${documentTitle}` : 'No document uploaded — general questions only'}</span>
           </div>
           <span className="shrink-0 text-[10px] text-[#8C887B] uppercase tracking-wider">
             PII Redacted
@@ -388,6 +398,11 @@ export const GeminiChatbot: React.FC<GeminiChatbotProps> = ({
                     {msg.content}
                     {streamingId === msg.id && <span className="inline-block w-1.5 h-3.5 ml-0.5 align-middle bg-[#C38A2E] motion-safe:animate-pulse" aria-hidden="true" />}
                   </p>
+                  {msg.notice && (
+                    <p role="note" className="mt-2 text-[11px] font-sans px-2 py-1.5 rounded bg-[#FAF3E0] border border-[#E8D499] text-[#6B5217]">
+                      {msg.notice}
+                    </p>
+                  )}
 
                   {/* Actions for Assistant Messages */}
                   {!isUser && streamingId !== msg.id && (

@@ -466,6 +466,33 @@ export default function App() {
 
   const advocateBriefCount = findings.filter((f) => f.inAdvocateBrief).length;
 
+  // Grounds the chat in the document the user actually has open (the server masks PII again and caps the size).
+  const chatDocumentContext = activeDoc
+    ? [
+        `Document: ${documentInfo.title}`,
+        `Property: ${documentInfo.property}. City: ${documentInfo.city}. Consideration: ${documentInfo.totalConsideration}.`,
+        currentSummaryData?.parties
+          ? `Parties: ${currentSummaryData.parties.vendor} / ${currentSummaryData.parties.purchaser}.`
+          : '',
+        findings.length
+          ? 'Flagged findings:\n' +
+            findings
+              .slice(0, 12)
+              .map((f) => `- [${f.severity}] Clause ${f.clauseNumber}: ${f.shortTitle} — ${f.plainLanguageExplanation}`)
+              .join('\n')
+          : '',
+        currentFullClauses.length
+          ? 'Clauses:\n' +
+            currentFullClauses
+              .map((c) => `${c.title}: ${c.originalLegalText}`)
+              .join('\n')
+              .slice(0, 5000)
+          : '',
+      ]
+        .filter(Boolean)
+        .join('\n')
+    : undefined;
+
   return (
     <div className="min-h-screen bg-[#F4F1EA] text-[#1C1C19] flex flex-col md:flex-row antialiased">
       <a
@@ -845,6 +872,7 @@ export default function App() {
         onClose={() => setIsAskOpen(false)}
         language={language}
         initialQuery={askInitialQuery}
+        documentContext={chatDocumentContext}
       />
 
       {/* Global Download Report Modal (loaded on demand) */}
@@ -880,7 +908,8 @@ export default function App() {
         language={language}
         onLanguageChange={setLanguage}
         initialQuestion={chatbotInitialQuestion}
-        documentContext="Flat 402 Kalyani Nagar Sale Deed (18 pages), Consideration: ₹86 Lakhs. Critical issues: Outstanding SBI mortgage without foreclosure release, unspecific possession timeline, 12-month defect liability."
+        documentContext={chatDocumentContext}
+        documentTitle={activeDoc ? documentInfo.title : undefined}
         onAddQuestionToBrief={(q) => {
           // Add custom question or finding to advocate brief
           setFindings((prev) => [

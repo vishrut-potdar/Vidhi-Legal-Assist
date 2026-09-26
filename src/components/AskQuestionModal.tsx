@@ -12,6 +12,7 @@ interface AskQuestionModalProps {
   onClose: () => void;
   language: Language;
   initialQuery?: string;
+  documentContext?: string;
 }
 
 export const AskQuestionModal: React.FC<AskQuestionModalProps> = ({
@@ -19,6 +20,7 @@ export const AskQuestionModal: React.FC<AskQuestionModalProps> = ({
   onClose,
   language,
   initialQuery = '',
+  documentContext,
 }) => {
   const [query, setQuery] = useState(initialQuery);
   const [submittedQuery, setSubmittedQuery] = useState('');
@@ -41,7 +43,7 @@ export const AskQuestionModal: React.FC<AskQuestionModalProps> = ({
       const res = await fetch('/api/pipeline/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: activeQ, language, readingLevel }),
+        body: JSON.stringify({ query: activeQ, documentContext, language, readingLevel }),
       });
 
       if (res.ok) {

@@ -201,7 +201,7 @@ export function createApp() {
     }
     const send = startNdjson(res);
     try {
-      const { modelUsed, offline } = await streamChatWithAI(
+      const { modelUsed, offline, notice } = await streamChatWithAI(
         messages,
         typeof documentContext === 'string' ? documentContext : undefined,
         normalizeLanguage(req.body.language),
@@ -209,7 +209,7 @@ export function createApp() {
         normalizeReadingLevel(req.body.readingLevel),
         (text) => send({ type: 'delta', text })
       );
-      send({ type: 'done', modelUsed, offline, timestamp: new Date().toISOString() });
+      send({ type: 'done', modelUsed, offline, notice, timestamp: new Date().toISOString() });
     } catch (err: any) {
       console.error('Streaming chat error:', err?.message || err);
       send({ type: 'error', message: 'Failed to process chat message' });
