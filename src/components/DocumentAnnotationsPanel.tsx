@@ -152,7 +152,7 @@ export const DocumentAnnotationsPanel: React.FC<DocumentAnnotationsPanelProps> =
         {/* Search Input */}
         <div className="relative">
           <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[#8C887B]" />
-          <input
+          <input aria-label="Search notes"
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -163,7 +163,7 @@ export const DocumentAnnotationsPanel: React.FC<DocumentAnnotationsPanelProps> =
 
         {/* Tag Filters */}
         <div className="flex items-center gap-1 overflow-x-auto pb-1 text-[11px] font-mono">
-          <button
+          <button aria-pressed={selectedTag === 'ALL'}
             onClick={() => setSelectedTag('ALL')}
             className={`px-2 py-0.5 rounded transition-all whitespace-nowrap ${
               selectedTag === 'ALL'
@@ -178,7 +178,7 @@ export const DocumentAnnotationsPanel: React.FC<DocumentAnnotationsPanelProps> =
             const count = annotations.filter((a) => a.tag === key).length;
             if (count === 0) return null;
             return (
-              <button
+              <button aria-pressed={selectedTag === key}
                 key={key}
                 onClick={() => setSelectedTag(key)}
                 className={`px-2 py-0.5 rounded transition-all whitespace-nowrap flex items-center gap-1 ${
@@ -292,7 +292,7 @@ export const DocumentAnnotationsPanel: React.FC<DocumentAnnotationsPanelProps> =
                       <span>Edit</span>
                     </button>
 
-                    <button
+                    <button aria-label="Delete note"
                       onClick={() => onDeleteAnnotation(anno.id)}
                       className="p-1 text-[#8E4A3F] hover:text-red-700 hover:bg-red-50 rounded"
                       title="Delete note"

@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { X, RefreshCw, Check, Copy, ArrowRight } from 'lucide-react';
 import { Language, Finding } from '../types';
+import { usePreferences } from '../context/PreferencesContext';
+import { useDialogA11y } from '../hooks/useDialogA11y';
 
 export interface AIClauseAnalysisData {
   clauseNumber: number;
@@ -40,6 +42,8 @@ export const AIClauseModal: React.FC<AIClauseModalProps> = ({
   const [analysis, setAnalysis] = useState<AIClauseAnalysisData | null>(null);
   const [copied, setCopied] = useState<boolean>(false);
   const [addedBrief, setAddedBrief] = useState<boolean>(false);
+  const { readingLevel } = usePreferences();
+  const dialogRef = useDialogA11y<HTMLDivElement>(isOpen, onClose);
 
   const fetchAnalysis = async () => {
     setLoading(true);
@@ -53,6 +57,7 @@ export const AIClauseModal: React.FC<AIClauseModalProps> = ({
           pageNumber,
           originalLegalText: originalText,
           language,
+          readingLevel,
         }),
       });
 
@@ -98,7 +103,7 @@ export const AIClauseModal: React.FC<AIClauseModalProps> = ({
     if (isOpen && originalText) {
       fetchAnalysis();
     }
-  }, [isOpen, clauseNumber, originalText, language]);
+  }, [isOpen, clauseNumber, originalText, language, readingLevel]);
 
   if (!isOpen) return null;
 
@@ -121,6 +126,8 @@ export const AIClauseModal: React.FC<AIClauseModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
       <div
+        ref={dialogRef}
+        tabIndex={-1}
         className="bg-[#FCFBF7] border border-[#DDD9CE] rounded-xl shadow-2xl max-w-2xl w-full flex flex-col max-h-[90vh] overflow-hidden"
         role="dialog"
         aria-modal="true"
@@ -151,15 +158,16 @@ export const AIClauseModal: React.FC<AIClauseModalProps> = ({
               disabled={loading}
               className="p-1.5 rounded text-[#6F6D65] hover:text-[#1C1C19] hover:bg-[#EAE6DB] transition-colors disabled:opacity-40"
               title="Re-analyze with Gemini"
+              aria-label="Re-analyze this clause"
             >
-              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-4 h-4 ${loading ? 'motion-safe:animate-spin' : ''}`} aria-hidden="true" />
             </button>
             <button
               onClick={onClose}
               className="p-1.5 rounded text-[#6F6D65] hover:text-[#1C1C19] hover:bg-[#EAE6DB] transition-colors"
-              aria-label="Close"
+              aria-label="Close clause analysis"
             >
-              <X className="w-5 h-5" />
+              <X className="w-5 h-5" aria-hidden="true" />
             </button>
           </div>
         </div>

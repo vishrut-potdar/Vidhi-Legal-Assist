@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useDialogA11y } from '../hooks/useDialogA11y';
 import {
   X,
   Download,
@@ -30,6 +31,7 @@ export const DownloadReportModal: React.FC<DownloadReportModalProps> = ({
   language,
 }) => {
   const [downloadSuccess, setDownloadSuccess] = useState<string | null>(null);
+  const dialogRef = useDialogA11y<HTMLDivElement>(isOpen, onClose);
 
   if (!isOpen) return null;
 
@@ -49,14 +51,21 @@ export const DownloadReportModal: React.FC<DownloadReportModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fade-in">
-      <div className="bg-[#FCFBF7] border border-[#DDD9CE] rounded-xl max-w-lg w-full p-6 shadow-2xl space-y-5 relative">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="download-dialog-title"
+        tabIndex={-1}
+        className="bg-[#FCFBF7] border border-[#DDD9CE] rounded-xl max-w-lg w-full max-h-[92vh] overflow-y-auto p-4 sm:p-6 shadow-2xl space-y-5 relative"
+      >
         {/* Header */}
         <div className="flex items-start justify-between pb-3 border-b border-[#F3F0E8]">
           <div>
             <span className="text-[10px] font-bold uppercase tracking-wider text-[#C38A2E] font-mono">
               EXPORT & ARCHIVE
             </span>
-            <h2 className="text-lg font-semibold text-[#1C1C19] font-serif mt-0.5">
+            <h2 id="download-dialog-title" className="text-lg font-semibold text-[#1C1C19] font-serif mt-0.5">
               Download Matter Report
             </h2>
             <p className="text-xs text-[#6F6D65]">
@@ -66,9 +75,10 @@ export const DownloadReportModal: React.FC<DownloadReportModalProps> = ({
 
           <button
             onClick={onClose}
-            className="p-1 rounded-md text-[#96938A] hover:text-[#1C1C19] hover:bg-[#F3F0E8]"
+            aria-label="Close download dialog"
+            className="p-2 rounded-md text-[#96938A] hover:text-[#1C1C19] hover:bg-[#F3F0E8]"
           >
-            <X className="w-5 h-5" />
+            <X className="w-5 h-5" aria-hidden="true" />
           </button>
         </div>
 

@@ -19,6 +19,7 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { Language } from '../types';
+import { usePreferences } from '../context/PreferencesContext';
 
 interface ExecutiveSummarySectionProps {
   language: Language;
@@ -255,6 +256,7 @@ export const ExecutiveSummarySection: React.FC<ExecutiveSummarySectionProps> = (
     customSummaryData || defaultSummaries[language]
   );
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const { readingLevel } = usePreferences();
   const [isCopied, setIsCopied] = useState<boolean>(false);
   const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
@@ -283,7 +285,7 @@ export const ExecutiveSummarySection: React.FC<ExecutiveSummarySectionProps> = (
       const res = await fetch('/api/pipeline/summary', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ language }),
+        body: JSON.stringify({ language, readingLevel }),
       });
       if (res.ok) {
         const data = await res.json();
@@ -372,7 +374,7 @@ ${summaryData.recommendedNextSteps.join('\n')}
 
         {/* Action Toolbar */}
         <div className="flex items-center gap-1.5 shrink-0 self-end md:self-center">
-          <button
+          <button aria-pressed={isSpeaking}
             onClick={handleToggleSpeak}
             className={`p-2 rounded border text-xs flex items-center gap-1 transition-colors ${
               isSpeaking
@@ -410,7 +412,7 @@ ${summaryData.recommendedNextSteps.join('\n')}
             </span>
           </button>
 
-          <button
+          <button aria-label={isExpanded ? 'Collapse Executive Summary' : 'Expand Executive Summary'} aria-expanded={isExpanded}
             onClick={() => setIsExpanded(!isExpanded)}
             className="p-2 rounded border border-[#DDD9CE] bg-[#FCFBF7] hover:bg-[#F3F0E8] text-[#6F6D65] hover:text-[#1C1C19] text-xs transition-colors"
             title={isExpanded ? 'Collapse Executive Summary' : 'Expand Executive Summary'}

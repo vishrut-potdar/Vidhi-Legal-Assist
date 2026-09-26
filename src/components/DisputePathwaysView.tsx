@@ -18,6 +18,7 @@ import {
 import { disputePathwaysList } from '../data/legalIntelligenceData';
 import { DisputePathway, Language } from '../types';
 import { DisclaimerBanner } from './DisclaimerBanner';
+import { activateOnKey } from '../utils/a11y';
 
 interface DisputePathwaysViewProps {
   language?: Language;
@@ -79,7 +80,7 @@ export const DisputePathwaysView: React.FC<DisputePathwaysViewProps> = ({
           const isMediation = path.type === 'MEDIATION';
 
           return (
-            <div
+            <div role="button" tabIndex={0} onKeyDown={activateOnKey} aria-pressed={activePathwayId === path.id}
               key={path.id}
               onClick={() => setActivePathwayId(path.id)}
               className={`p-4 rounded-lg border cursor-pointer transition-all flex flex-col justify-between ${

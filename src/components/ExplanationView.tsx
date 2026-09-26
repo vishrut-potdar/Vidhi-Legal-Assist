@@ -7,6 +7,7 @@ import {
   Info,
 } from 'lucide-react';
 import { Finding, Language } from '../types';
+import { BilingualText } from './BilingualText';
 
 interface ExplanationViewProps {
   finding: Finding;
@@ -129,7 +130,7 @@ export const ExplanationView: React.FC<ExplanationViewProps> = ({
             </div>
 
             {/* Audio Listen */}
-            <button
+            <button aria-pressed={isPlayingAudio}
               onClick={handlePlayAudio}
               className={`p-1.5 rounded border text-xs transition-colors flex items-center gap-1 ${
                 isPlayingAudio
@@ -148,9 +149,15 @@ export const ExplanationView: React.FC<ExplanationViewProps> = ({
           </div>
 
           {/* Large Headline Title */}
-          <h2 className="font-serif text-xl sm:text-2xl font-semibold text-[#1C1C19] leading-snug">
-            {finding.plainHeadline}
-          </h2>
+          <BilingualText
+            as="h2"
+            language={language}
+            en={finding.plainHeadline}
+            hi={finding.plainHeadlineHindi}
+            mr={finding.plainHeadlineMarathi}
+            className="font-serif text-xl sm:text-2xl font-semibold text-[#1C1C19] leading-snug"
+            secondaryClassName="block mt-1 text-sm font-sans font-normal text-[#6F6D65]"
+          />
 
           {/* Source Quote Box with thick left red border */}
           <div className="border-l-4 border-[#8E4A3F] bg-[#FAF8F5] p-3.5 rounded-r">
@@ -164,9 +171,14 @@ export const ExplanationView: React.FC<ExplanationViewProps> = ({
             <span className="text-[10px] font-mono uppercase tracking-[0.14em] text-[#6F6D65] font-semibold block">
               IN PLAIN LANGUAGE
             </span>
-            <p className="text-xs sm:text-sm text-[#1C1C19] leading-relaxed">
-              {finding.plainLanguageExplanation}
-            </p>
+            <BilingualText
+              language={language}
+              en={finding.plainLanguageExplanation}
+              hi={finding.plainLanguageExplanationHindi}
+              mr={finding.plainLanguageExplanationMarathi}
+              className="text-xs sm:text-sm text-[#1C1C19] leading-relaxed"
+              secondaryClassName="block mt-1.5 text-xs text-[#6F6D65]"
+            />
           </div>
 
           {/* WHY IT MATTERS IN PRACTICE */}

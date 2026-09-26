@@ -4,6 +4,8 @@ import { Language } from '../types';
 import { groundedQADatabase, GroundedQAEntry } from '../data/legalIntelligenceData';
 import { SourceSpanCitation } from './SourceSpanCitation';
 import { UncertaintyBadge } from './UncertaintyBadge';
+import { usePreferences } from '../context/PreferencesContext';
+import { useDialogA11y } from '../hooks/useDialogA11y';
 
 interface AskQuestionModalProps {
   isOpen: boolean;
@@ -23,6 +25,8 @@ export const AskQuestionModal: React.FC<AskQuestionModalProps> = ({
   const [result, setResult] = useState<GroundedQAEntry | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [strictGrounding, setStrictGrounding] = useState(true);
+  const { readingLevel } = usePreferences();
+  const dialogRef = useDialogA11y<HTMLDivElement>(isOpen, onClose);
 
   if (!isOpen) return null;
 
@@ -37,7 +41,7 @@ export const AskQuestionModal: React.FC<AskQuestionModalProps> = ({
       const res = await fetch('/api/pipeline/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: activeQ, language }),
+        body: JSON.stringify({ query: activeQ, language, readingLevel }),
       });
 
       if (res.ok) {
@@ -157,8 +161,15 @@ export const AskQuestionModal: React.FC<AskQuestionModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fade-in">
-      <div className="bg-[#FCFBF7] border border-[#DDD9CE] rounded-xl max-w-2xl w-full p-6 sm:p-7 shadow-2xl space-y-5 relative max-h-[92vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-xs animate-fade-in">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="ask-dialog-title"
+        tabIndex={-1}
+        className="bg-[#FCFBF7] border border-[#DDD9CE] rounded-t-xl sm:rounded-xl max-w-2xl w-full p-4 sm:p-7 shadow-2xl space-y-5 relative max-h-[92vh] overflow-y-auto"
+      >
         {/* Header */}
         <div className="flex items-start justify-between pb-3 border-b border-[#F3F0E8]">
           <div>
@@ -170,7 +181,7 @@ export const AskQuestionModal: React.FC<AskQuestionModalProps> = ({
                 SALE DEED — FLAT 402
               </span>
             </div>
-            <h2 className="text-xl font-semibold text-[#1C1C19] font-serif mt-1">
+            <h2 id="ask-dialog-title" className="text-xl font-semibold text-[#1C1C19] font-serif mt-1">
               Grounded Document Q&amp;A
             </h2>
             <p className="text-xs text-[#6F6D65] mt-0.5">
@@ -180,9 +191,10 @@ export const AskQuestionModal: React.FC<AskQuestionModalProps> = ({
 
           <button
             onClick={onClose}
-            className="p-1 rounded-md text-[#8C887B] hover:text-[#1C1C19] hover:bg-[#F3F0E8]"
+            aria-label="Close question dialog"
+            className="p-2 rounded-md text-[#8C887B] hover:text-[#1C1C19] hover:bg-[#F3F0E8]"
           >
-            <X className="w-5 h-5" />
+            <X className="w-5 h-5" aria-hidden="true" />
           </button>
         </div>
 
@@ -206,7 +218,7 @@ export const AskQuestionModal: React.FC<AskQuestionModalProps> = ({
           className="space-y-2"
         >
           <div className="relative">
-            <textarea
+            <textarea aria-label="Your question about the deed"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Ask anything about the deed (e.g., 'When is possession promised?' or test refusal with 'What is the seller's PAN number?')..."

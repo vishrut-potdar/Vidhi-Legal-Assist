@@ -10,6 +10,8 @@ import {
 } from 'lucide-react';
 import { Language } from '../types';
 import { PipelineExecutionResult } from '../server/aiPipeline';
+import { activateOnKey } from '../utils/a11y';
+import { useDialogA11y } from '../hooks/useDialogA11y';
 
 interface PipelineViewerModalProps {
   isOpen: boolean;
@@ -48,6 +50,7 @@ export const PipelineViewerModal: React.FC<PipelineViewerModalProps> = ({
   const [pipelineResult, setPipelineResult] = useState<PipelineExecutionResult | null>(null);
   const [executionTimeMs, setExecutionTimeMs] = useState<number | null>(null);
   const [selectedTraceStep, setSelectedTraceStep] = useState<number>(0);
+  const dialogRef = useDialogA11y<HTMLDivElement>(isOpen, onClose);
 
   if (!isOpen) return null;
 
@@ -189,6 +192,8 @@ export const PipelineViewerModal: React.FC<PipelineViewerModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
       <div
+        ref={dialogRef}
+        tabIndex={-1}
         className="bg-[#FCFBF7] border border-[#DDD9CE] rounded-xl shadow-2xl max-w-4xl w-full flex flex-col max-h-[92vh] overflow-hidden"
         role="dialog"
         aria-modal="true"
@@ -219,7 +224,7 @@ export const PipelineViewerModal: React.FC<PipelineViewerModalProps> = ({
           <button
             onClick={onClose}
             className="p-1.5 rounded text-[#6F6D65] hover:text-[#1C1C19] hover:bg-[#EAE6DB] transition-colors"
-            aria-label="Close"
+            aria-label="Close pipeline inspector"
           >
             <X className="w-5 h-5" />
           </button>
@@ -228,7 +233,7 @@ export const PipelineViewerModal: React.FC<PipelineViewerModalProps> = ({
         {/* Tab Switcher */}
         <div className="px-6 pt-3 pb-2 border-b border-[#E8E4D9] flex items-center justify-between bg-[#FCFBF7]">
           <div className="inline-flex rounded-md p-0.5 bg-[#EAE6DB] border border-[#DDD9CE] text-xs">
-            <button
+            <button aria-pressed={activeTab === 'live-inspect'}
               onClick={() => setActiveTab('live-inspect')}
               className={`px-3 py-1 rounded transition-all font-medium ${
                 activeTab === 'live-inspect'
@@ -238,7 +243,7 @@ export const PipelineViewerModal: React.FC<PipelineViewerModalProps> = ({
             >
               Live Pipeline Execution &amp; Trace
             </button>
-            <button
+            <button aria-pressed={activeTab === 'architecture'}
               onClick={() => setActiveTab('architecture')}
               className={`px-3 py-1 rounded transition-all font-medium ${
                 activeTab === 'architecture'
@@ -268,7 +273,7 @@ export const PipelineViewerModal: React.FC<PipelineViewerModalProps> = ({
                 </span>
                 <div className="flex flex-wrap gap-2">
                   {PRESETS.map((preset) => (
-                    <button
+                    <button aria-pressed={inputText === preset.text}
                       key={preset.id}
                       onClick={() => {
                         setInputText(preset.text);
@@ -301,7 +306,7 @@ export const PipelineViewerModal: React.FC<PipelineViewerModalProps> = ({
                     <span>{isProcessing ? 'Executing AI Pipeline...' : 'Run Pipeline'}</span>
                   </button>
                 </div>
-                <textarea
+                <textarea aria-label="Document text to run through the pipeline"
                   value={inputText}
                   onChange={(e) => setInputText(e.target.value)}
                   rows={4}
@@ -457,7 +462,7 @@ export const PipelineViewerModal: React.FC<PipelineViewerModalProps> = ({
                     </span>
                     <div className="space-y-1.5 font-mono text-xs">
                       {pipelineResult.trace.map((step, idx) => (
-                        <div
+                        <div role="button" tabIndex={0} onKeyDown={activateOnKey} aria-pressed={selectedTraceStep === idx}
                           key={step.stepId}
                           onClick={() => setSelectedTraceStep(idx)}
                           className={`p-2.5 rounded border cursor-pointer transition-colors flex items-center justify-between ${

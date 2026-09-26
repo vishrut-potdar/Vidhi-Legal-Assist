@@ -75,7 +75,7 @@ export const AdvocateBriefView: React.FC<AdvocateBriefViewProps> = ({
         <div className="flex items-center gap-2">
           {/* Language Toggle for Brief */}
           <div className="inline-flex rounded-md p-0.5 bg-[#EAE6DB] border border-[#DDD9CE] text-xs">
-            <button
+            <button aria-pressed={briefLanguage === 'EN'}
               onClick={() => setBriefLanguage('EN')}
               className={`px-2.5 py-1 rounded transition-all font-medium ${
                 briefLanguage === 'EN'
@@ -85,7 +85,7 @@ export const AdvocateBriefView: React.FC<AdvocateBriefViewProps> = ({
             >
               English
             </button>
-            <button
+            <button aria-pressed={briefLanguage === 'HI'}
               onClick={() => setBriefLanguage('HI')}
               className={`px-2.5 py-1 rounded transition-all font-medium ${
                 briefLanguage === 'HI'
@@ -95,7 +95,7 @@ export const AdvocateBriefView: React.FC<AdvocateBriefViewProps> = ({
             >
               हिंदी
             </button>
-            <button
+            <button aria-pressed={briefLanguage === 'MR'}
               onClick={() => setBriefLanguage('MR')}
               className={`px-2.5 py-1 rounded transition-all font-medium ${
                 briefLanguage === 'MR'
@@ -127,7 +127,7 @@ export const AdvocateBriefView: React.FC<AdvocateBriefViewProps> = ({
           STRUCTURED INTAKE DOSSIER SECTIONS:
         </span>
         <div className="inline-flex rounded-md p-0.5 bg-[#EAE6DB] border border-[#DDD9CE]">
-          <button
+          <button aria-pressed={activeDossierTab === 'ALL'}
             onClick={() => setActiveDossierTab('ALL')}
             className={`px-3 py-1 rounded transition-all font-medium ${
               activeDossierTab === 'ALL'
@@ -137,7 +137,7 @@ export const AdvocateBriefView: React.FC<AdvocateBriefViewProps> = ({
           >
             Complete Dossier (All 3 Parts)
           </button>
-          <button
+          <button aria-pressed={activeDossierTab === 'CHRONOLOGY'}
             onClick={() => setActiveDossierTab('CHRONOLOGY')}
             className={`px-3 py-1 rounded transition-all font-medium ${
               activeDossierTab === 'CHRONOLOGY'
@@ -147,7 +147,7 @@ export const AdvocateBriefView: React.FC<AdvocateBriefViewProps> = ({
           >
             Part I: Chronology
           </button>
-          <button
+          <button aria-pressed={activeDossierTab === 'POINTS'}
             onClick={() => setActiveDossierTab('POINTS')}
             className={`px-3 py-1 rounded transition-all font-medium ${
               activeDossierTab === 'POINTS'
@@ -157,7 +157,7 @@ export const AdvocateBriefView: React.FC<AdvocateBriefViewProps> = ({
           >
             Part II: Admitted vs Contested
           </button>
-          <button
+          <button aria-pressed={activeDossierTab === 'QUESTIONS'}
             onClick={() => setActiveDossierTab('QUESTIONS')}
             className={`px-3 py-1 rounded transition-all font-medium ${
               activeDossierTab === 'QUESTIONS'
@@ -429,7 +429,7 @@ export const AdvocateBriefView: React.FC<AdvocateBriefViewProps> = ({
                           CUSTOM CITIZEN QUERY
                         </span>
                       </div>
-                      <button
+                      <button aria-label={`Remove question: ${q}`}
                         onClick={() => handleRemoveCustomQuestion(idx)}
                         className="no-print text-xs text-[#96938A] hover:text-[#B44738]"
                       >
@@ -458,7 +458,7 @@ export const AdvocateBriefView: React.FC<AdvocateBriefViewProps> = ({
                   <label className="block text-xs font-semibold text-[#1C1C19]">
                     Add your own question or note for your advocate:
                   </label>
-                  <textarea
+                  <textarea aria-label="Add your own question for the advocate"
                     value={newQuestionInput}
                     onChange={(e) => setNewQuestionInput(e.target.value)}
                     placeholder="e.g. Can we confirm if the seller will provide an electricity meter transfer form signed before signing?"

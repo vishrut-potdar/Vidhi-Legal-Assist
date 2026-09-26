@@ -15,9 +15,11 @@ import {
   Pin,
   PinOff,
   Cpu,
+  Trash2,
 } from 'lucide-react';
 import { Language } from '../types';
 import { uiTranslations } from '../data/mockData';
+import { ReadingLevelToggle } from './ReadingLevelToggle';
 
 interface SidebarProps {
   currentTab: string;
@@ -35,6 +37,7 @@ interface SidebarProps {
   onCloseMobile?: () => void;
   activeDocTitle?: string;
   hasActiveDoc?: boolean;
+  onClearData?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -53,11 +56,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onCloseMobile,
   activeDocTitle,
   hasActiveDoc = false,
+  onClearData,
 }) => {
   const t = uiTranslations[language];
   const [isHoverExpanded, setIsHoverExpanded] = useState<boolean>(false);
   const [isPinned, setIsPinned] = useState<boolean>(!isCollapsed);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Escape closes the mobile navigation drawer
+  useEffect(() => {
+    if (!mobileOpen || !onCloseMobile) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCloseMobile();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [mobileOpen, onCloseMobile]);
 
   // Sync external collapse changes
   useEffect(() => {
@@ -222,6 +236,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       )}
 
       <aside
+        aria-label="Vidhi navigation"
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
         className={`bg-[#161513] text-[#FAF8F5] flex flex-col justify-between h-screen border-r border-[#262420] transition-all duration-300 ease-out font-sans ${
@@ -277,7 +292,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               ) : (
                 <div className="hidden md:flex items-center gap-1">
                   {/* Pin / Auto-Hide Toggle */}
-                  <button
+                  <button aria-label="Keep taskbar pinned open" aria-pressed={isPinned}
                     onClick={togglePin}
                     className={`p-1.5 rounded transition-colors ${
                       isPinned
@@ -294,7 +309,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </button>
 
                   {/* Collapse Toggle */}
-                  <button
+                  <button aria-label={isCollapsed ? 'Expand taskbar' : 'Collapse taskbar'}
                     onClick={onToggleCollapse}
                     className="p-1.5 rounded text-[#8C887B] hover:text-[#FAF8F5] hover:bg-[#282622] transition-colors shrink-0"
                     title={isCollapsed ? 'Expand taskbar' : 'Collapse taskbar'}
@@ -335,7 +350,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </div>
               ) : (
                 <div className="flex justify-center">
-                  <button
+                  <button aria-label={`Active document: ${activeDocTitle}. Upload a new document`}
                     onClick={() => {
                       onOpenUpload?.();
                       if (!isPinned) setIsHoverExpanded(false);
@@ -351,9 +366,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
           )}
 
         {/* Navigation Links */}
-        <nav className="p-3 space-y-1">
+        <nav aria-label="Workspace" className="p-3 space-y-1">
           {/* Primary Home / Upload & OCR Button */}
-          <button
+          <button aria-current={currentTab === 'home' ? 'page' : undefined}
             onClick={() => handleNavClick('home')}
             className={`w-full flex items-center rounded-md text-xs transition-all text-left ${
               !isEffectivelyExpanded
@@ -391,7 +406,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 const isActive = currentTab === item.id;
                 const IconComponent = item.icon;
                 return (
-                  <button
+                  <button aria-current={isActive ? 'page' : undefined}
                     key={item.id}
                     onClick={() => handleNavClick(item.id)}
                     className={`w-full flex items-center rounded-md text-xs transition-all text-left ${
@@ -489,7 +504,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </span>
           </button>
         ) : (
-          <button
+          <button aria-label="AI Pipeline Trace"
             onClick={() => {
               onOpenPipelineViewer();
               if (!isPinned) setIsHoverExpanded(false);
@@ -503,12 +518,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {/* Language Segmented Control */}
         {isEffectivelyExpanded ? (
-          <div className="flex items-center justify-between bg-[#1D1C18] border border-[#2A2823] p-1 rounded-md">
+          <div className="space-y-2">
+          <div role="group" aria-label="Language" className="flex items-center justify-between bg-[#1D1C18] border border-[#2A2823] p-1 rounded-md">
             {(['EN', 'HI', 'MR'] as Language[]).map((lang) => {
               const active = language === lang;
               return (
                 <button
                   key={lang}
+                  aria-pressed={active}
+                  lang={lang === 'EN' ? 'en' : lang === 'HI' ? 'hi' : 'mr'}
                   onClick={() => onLanguageChange(lang)}
                   className={`flex-1 py-1 text-xs text-center rounded transition-all ${
                     active
@@ -521,6 +539,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               );
             })}
           </div>
+          <ReadingLevelToggle variant="dark" language={language} />
+          </div>
         ) : (
           <button
             onClick={() =>
@@ -530,10 +550,34 @@ export const Sidebar: React.FC<SidebarProps> = ({
             }
             className="w-full py-1 text-[10px] font-mono text-[#FAF8F5] bg-[#22211C] border border-[#2A2823] rounded text-center"
             title="Switch Language"
+            aria-label={`Language: ${language}. Press to switch`}
           >
             {language}
           </button>
         )}
+
+        {/* Clear all session data */}
+        {onClearData &&
+          (isEffectivelyExpanded ? (
+            <button
+              type="button"
+              onClick={onClearData}
+              className="w-full flex items-center justify-center gap-2 py-1.5 text-xs rounded-md border border-[#4A2E2A] text-[#E7B4AB] hover:bg-[#2A1C1A] hover:text-white transition-colors"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>{language === 'HI' ? 'मेरा डेटा मिटाएं' : language === 'MR' ? 'माझा डेटा पुसा' : 'Clear my data'}</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onClearData}
+              className="w-full flex items-center justify-center p-2 rounded border border-[#4A2E2A] text-[#E7B4AB] hover:bg-[#2A1C1A]"
+              title="Clear my data"
+              aria-label="Clear my data"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          ))}
 
         {/* User Profile */}
         <div className={`flex items-center gap-3 pt-1 ${!isEffectivelyExpanded ? 'justify-center' : ''}`}>

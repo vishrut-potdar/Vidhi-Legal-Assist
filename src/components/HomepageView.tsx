@@ -21,6 +21,9 @@ import {
 } from 'lucide-react';
 import { Language } from '../types';
 import { AnalyzedDocumentResult } from './UploadModal';
+import { AnalysisProgress, PartialFinding } from './AnalysisProgress';
+import { usePreferences } from '../context/PreferencesContext';
+import { AnalysisStage, analyzeDocumentStream, isImageFile, prepareUpload, UploadPayload } from '../utils/analyzeDocument';
 
 export interface HomepageViewProps {
   language: Language;
@@ -82,7 +85,12 @@ export const HomepageView: React.FC<HomepageViewProps> = ({
   const [pastedText, setPastedText] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [stageMessage, setStageMessage] = useState<string>('');
+  const [stage, setStage] = useState<AnalysisStage>('parsing');
+  const [progress, setProgress] = useState<number>(0);
+  const [partials, setPartials] = useState<PartialFinding[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const { readingLevel } = usePreferences();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const ocrFileInputRef = useRef<HTMLInputElement>(null);
@@ -100,6 +108,7 @@ export const HomepageView: React.FC<HomepageViewProps> = ({
     setErrorMessage(null);
 
     // If image file, generate preview thumbnail
+    if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
     if (file.type.startsWith('image/')) {
       const url = URL.createObjectURL(file);
       setImagePreviewUrl(url);
@@ -115,94 +124,61 @@ export const HomepageView: React.FC<HomepageViewProps> = ({
   const handleStartAnalysis = async (customText?: string, customName?: string) => {
     setIsProcessing(true);
     setErrorMessage(null);
+    setStage('parsing');
+    setProgress(2);
+    setPartials([]);
+    setStageMessage(isImageSelected() ? 'Compressing photo for upload…' : 'Preparing document…');
+    const controller = new AbortController();
+    abortRef.current = controller;
 
     try {
-      let payload: any = { language };
-
+      let payload: UploadPayload;
       if (customText) {
-        payload.rawText = customText;
-        payload.fileName = customName || 'Contract Document';
+        payload = { rawText: customText, fileName: customName || 'Contract Document' };
       } else if ((activeTab === 'upload' || activeTab === 'ocr') && selectedFile) {
-        payload.fileName = selectedFile.name;
-        payload.mimeType = selectedFile.type || 'application/pdf';
-
-        const isPdf = selectedFile.type === 'application/pdf' || selectedFile.name.endsWith('.pdf');
-        const isImage = selectedFile.type.startsWith('image/') || /\.(jpe?g|png|webp)$/i.test(selectedFile.name);
-
-        if (isImage || activeTab === 'ocr') {
-          setStageMessage('Scanning high-resolution image bytes for OCR character extraction...');
-        } else {
-          setStageMessage('Reading document structure and clause divisions...');
-        }
-
-        if (isPdf || isImage) {
-          const base64Data = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => {
-              const res = reader.result as string;
-              const base64 = res.split(',')[1] || res;
-              resolve(base64);
-            };
-            reader.onerror = reject;
-            reader.readAsDataURL(selectedFile);
-          });
-          payload.fileBase64 = base64Data;
-          payload.mimeType = selectedFile.type || (isImage ? 'image/jpeg' : 'application/pdf');
-        } else {
-          const textData = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result as string);
-            reader.onerror = reject;
-            reader.readAsText(selectedFile);
-          });
-          payload.rawText = textData;
-        }
-      } else if (activeTab === 'paste') {
-        if (!pastedText.trim()) {
-          setErrorMessage('Please paste your legal agreement or deed text.');
-          setIsProcessing(false);
-          return;
-        }
-        payload.rawText = pastedText.trim();
-        payload.fileName = 'Pasted Legal Agreement';
-      }
-
-      setStageMessage('Sanitizing sensitive identifiers (Aadhaar / PAN / Phone / Bank details)...');
-      await new Promise((r) => setTimeout(r, 600));
-
-      if (activeTab === 'ocr' || (selectedFile && selectedFile.type.startsWith('image/'))) {
-        setStageMessage('Transcribing optical characters, stamp seals & covenants with Gemini 3.8 Flash...');
+        payload = await prepareUpload(selectedFile);
+      } else if (activeTab === 'paste' && pastedText.trim()) {
+        payload = { rawText: pastedText.trim(), fileName: 'Pasted Legal Agreement' };
       } else {
-        setStageMessage('Sending document to Gemini 3.8 Flash for statutory scrutiny...');
+        setErrorMessage('Please choose a file or paste your legal agreement text.');
+        return;
       }
 
-      const res = await fetch('/api/document/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
+      const analyzedDoc = await analyzeDocumentStream(
+        { ...payload, language, readingLevel },
+        (event) => {
+          if (event.type === 'stage') {
+            setStage(event.stage);
+            setProgress(event.progress);
+            setStageMessage(event.message);
+          } else if (event.type === 'partial') {
+            setPartials((prev) => [...prev, { clauseNumber: event.clauseNumber, title: event.title, riskLevel: event.riskLevel }]);
+          }
+        },
+        controller.signal
+      );
 
-      if (!res.ok) {
-        throw new Error(`Server returned error code ${res.status}`);
-      }
-
-      setStageMessage('Auditing covenants against Transfer of Property Act, RERA & Stamp Act...');
-      const analyzedDoc: AnalyzedDocumentResult = await res.json();
-
-      setStageMessage('Unlocking taskbar navigation & synthesizing advocate questions...');
-      await new Promise((r) => setTimeout(r, 500));
-
+      // Analysis done: drop the local copy of the file and preview.
+      setSelectedFile(null);
+      if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+      setImagePreviewUrl(null);
+      setPastedText('');
       onAnalysisSuccess(analyzedDoc);
     } catch (err: any) {
-      console.error('Document analysis failed:', err);
-      setErrorMessage(
-        err.message || 'Failed to analyze document. Please check the file or try pasting the text.'
-      );
+      if (err?.name === 'AbortError') {
+        setErrorMessage('Analysis cancelled.');
+      } else {
+        console.error('Document analysis failed:', err);
+        setErrorMessage(err?.message || 'Failed to analyze document. Please check the file or try pasting the text.');
+      }
     } finally {
+      abortRef.current = null;
       setIsProcessing(false);
       setStageMessage('');
     }
   };
+
+  const isImageSelected = () => Boolean(selectedFile && isImageFile(selectedFile));
 
   return (
     <div className="max-w-5xl mx-auto space-y-8 py-4 sm:py-6 px-2 sm:px-4">
@@ -260,7 +236,7 @@ export const HomepageView: React.FC<HomepageViewProps> = ({
       <div className="bg-[#FCFBF7] border border-[#DDD9CE] rounded-xl shadow-xs overflow-hidden">
         {/* Tab Navigation */}
         <div className="flex flex-wrap border-b border-[#DDD9CE] bg-[#F7F4EC]">
-          <button
+          <button aria-pressed={activeTab === 'upload'}
             onClick={() => {
               setActiveTab('upload');
               setSelectedFile(null);
@@ -276,7 +252,7 @@ export const HomepageView: React.FC<HomepageViewProps> = ({
             <span>Upload Document</span>
           </button>
 
-          <button
+          <button aria-pressed={activeTab === 'ocr'}
             onClick={() => {
               setActiveTab('ocr');
               setSelectedFile(null);
@@ -297,7 +273,7 @@ export const HomepageView: React.FC<HomepageViewProps> = ({
             </span>
           </button>
 
-          <button
+          <button aria-pressed={activeTab === 'paste'}
             onClick={() => {
               setActiveTab('paste');
               setSelectedFile(null);
@@ -313,7 +289,7 @@ export const HomepageView: React.FC<HomepageViewProps> = ({
             <span>Paste Text</span>
           </button>
 
-          <button
+          <button aria-pressed={activeTab === 'samples'}
             onClick={() => {
               setActiveTab('samples');
               setSelectedFile(null);
@@ -334,37 +310,18 @@ export const HomepageView: React.FC<HomepageViewProps> = ({
         <div className="p-6 sm:p-8 space-y-6">
           {isProcessing ? (
             /* Live AI Pipeline Progress State */
-            <div className="py-12 px-4 text-center space-y-5">
-              <div className="relative w-16 h-16 mx-auto flex items-center justify-center">
-                <div className="absolute inset-0 rounded-full border-4 border-[#F2E6C9] animate-pulse" />
-                <div className="absolute inset-2 rounded-full border-2 border-t-[#C38A2E] animate-spin" />
-                <Scan className="w-6 h-6 text-[#C38A2E]" />
-              </div>
-
-              <div className="space-y-2 max-w-md mx-auto">
-                <h3 className="text-lg font-semibold text-[#1C1C19] font-serif">
-                  {activeTab === 'ocr' ? 'Running Optical Character Recognition & Scrutiny...' : 'Auditing Document with Gemini 3.8 Flash...'}
-                </h3>
-                <p className="text-xs text-[#6F6D65] font-mono leading-relaxed min-h-[36px]">
-                  {stageMessage || 'Analyzing clauses and cross-referencing Indian property law...'}
-                </p>
-              </div>
-
-              <div className="w-full bg-[#E8E4D9] h-2 rounded-full overflow-hidden max-w-sm mx-auto">
-                <div className="h-full bg-[#C38A2E] animate-pulse w-4/5 rounded-full" />
-              </div>
-
-              <div className="flex flex-wrap items-center justify-center gap-3 text-[11px] text-[#8C887B] font-mono pt-2">
-                <span className="flex items-center gap-1">
-                  <Shield className="w-3.5 h-3.5 text-[#58735C]" />
-                  Aadhaar &amp; PAN Masked
-                </span>
-                <span>·</span>
-                <span>Transfer of Property Act 1882</span>
-                <span>·</span>
-                <span>RERA Section 11/14 Validation</span>
-              </div>
-            </div>
+            <section aria-labelledby="analysis-progress-heading">
+              <h2 id="analysis-progress-heading" className="text-lg font-semibold text-[#1C1C19] font-serif text-center">
+                {activeTab === 'ocr' ? 'Reading your scan and checking it…' : 'Checking your document…'}
+              </h2>
+              <AnalysisProgress
+                stage={stage}
+                message={stageMessage}
+                progress={progress}
+                partials={partials}
+                onCancel={() => abortRef.current?.abort()}
+              />
+            </section>
           ) : (
             <>
               {/* TAB 1: UPLOAD DOCUMENT */}
@@ -374,6 +331,15 @@ export const HomepageView: React.FC<HomepageViewProps> = ({
                     onDragOver={(e) => e.preventDefault()}
                     onDrop={(e) => handleFileDrop(e, false)}
                     onClick={() => fileInputRef.current?.click()}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        fileInputRef.current?.click();
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={selectedFile ? `Selected file ${selectedFile.name}. Press to choose a different file` : 'Choose a document to upload'}
                     className={`border-2 border-dashed rounded-xl p-8 sm:p-12 text-center transition-all cursor-pointer ${
                       selectedFile
                         ? 'border-[#58735C] bg-[#F4F8F4]'
@@ -383,7 +349,9 @@ export const HomepageView: React.FC<HomepageViewProps> = ({
                     <input
                       ref={fileInputRef}
                       type="file"
-                      accept=".pdf,.docx,.doc,.txt"
+                      accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+                      tabIndex={-1}
+                      aria-hidden="true"
                       onChange={(e) => {
                         if (e.target.files && e.target.files[0]) {
                           handleFileSelected(e.target.files[0], false);
@@ -419,7 +387,7 @@ export const HomepageView: React.FC<HomepageViewProps> = ({
                             Drag and drop your document here, or browse
                           </p>
                           <p className="text-xs text-[#6F6D65]">
-                            Supports PDF (.pdf), Word (.docx, .doc), or plain text (.txt) up to 50MB
+                            Supports PDF (.pdf), Word (.docx), or plain text (.txt) up to 12 MB
                           </p>
                         </div>
                         <span className="inline-block text-xs font-mono bg-[#EAE6DB] px-3 py-1.5 rounded text-[#1C1C19] font-medium">
@@ -492,7 +460,7 @@ export const HomepageView: React.FC<HomepageViewProps> = ({
                           <div className="w-36 h-36 mx-auto rounded-lg overflow-hidden border border-[#DDD9CE] shadow-xs relative group">
                             <img
                               src={imagePreviewUrl}
-                              alt="Scan Preview"
+                              alt={`Preview of ${selectedFile.name}`}
                               className="w-full h-full object-cover"
                             />
                             <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
@@ -581,6 +549,8 @@ export const HomepageView: React.FC<HomepageViewProps> = ({
                     </button>
                   </div>
                   <textarea
+                    id="paste-deed-text"
+                    aria-label="Paste deed or agreement text"
                     rows={10}
                     value={pastedText}
                     onChange={(e) => setPastedText(e.target.value)}
@@ -601,14 +571,15 @@ export const HomepageView: React.FC<HomepageViewProps> = ({
                     No document handy? Test-drive Vidhi with verified real-world Indian contracts containing real legal risks:
                   </p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div
+                    <button
+                      type="button"
                       onClick={() => {
                         handleStartAnalysis(
                           SAMPLE_SALE_DEED_TEXT,
                           'Draft Sale Deed — Flat 402, Kalyani Nagar'
                         );
                       }}
-                      className="p-5 bg-[#FAF8F2] border border-[#DDD9CE] hover:border-[#171714] rounded-lg cursor-pointer transition-all hover:shadow-xs space-y-2.5 group"
+                      className="text-left w-full p-5 bg-[#FAF8F2] border border-[#DDD9CE] hover:border-[#171714] rounded-lg cursor-pointer transition-all hover:shadow-xs space-y-2.5 group"
                     >
                       <div className="flex items-start justify-between">
                         <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#FAF3F1] text-[#8E4A3F] border border-[#EADBDA] font-semibold">
@@ -625,16 +596,17 @@ export const HomepageView: React.FC<HomepageViewProps> = ({
                       <div className="pt-1 text-[11px] font-mono text-[#C38A2E] font-medium">
                         Click to load &amp; audit with Gemini →
                       </div>
-                    </div>
+                    </button>
 
-                    <div
+                    <button
+                      type="button"
                       onClick={() => {
                         handleStartAnalysis(
                           SAMPLE_LEASE_TEXT,
                           'Residential Leave & License Agreement — Baner'
                         );
                       }}
-                      className="p-5 bg-[#FAF8F2] border border-[#DDD9CE] hover:border-[#171714] rounded-lg cursor-pointer transition-all hover:shadow-xs space-y-2.5 group"
+                      className="text-left w-full p-5 bg-[#FAF8F2] border border-[#DDD9CE] hover:border-[#171714] rounded-lg cursor-pointer transition-all hover:shadow-xs space-y-2.5 group"
                     >
                       <div className="flex items-start justify-between">
                         <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#F3ECD7] text-[#B08427] border border-[#E8DAB7] font-semibold">
@@ -651,14 +623,14 @@ export const HomepageView: React.FC<HomepageViewProps> = ({
                       <div className="pt-1 text-[11px] font-mono text-[#C38A2E] font-medium">
                         Click to load &amp; audit with Gemini →
                       </div>
-                    </div>
+                    </button>
                   </div>
                 </div>
               )}
 
               {/* Error Message */}
               {errorMessage && (
-                <div className="p-3.5 bg-[#FAF3F1] border border-[#EADBDA] rounded-lg flex items-center gap-2.5 text-xs text-[#8E4A3F]">
+                <div role="alert" className="p-3.5 bg-[#FAF3F1] border border-[#EADBDA] rounded-lg flex items-center gap-2.5 text-xs text-[#8E4A3F]">
                   <AlertCircle className="w-4 h-4 shrink-0" />
                   <span>{errorMessage}</span>
                 </div>
@@ -669,7 +641,7 @@ export const HomepageView: React.FC<HomepageViewProps> = ({
                 <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-3 border-t border-[#DDD9CE]">
                   <div className="flex items-center gap-2 text-xs text-[#6F6D65]">
                     <Shield className="w-4 h-4 text-[#58735C]" />
-                    <span>Safe &amp; Confidential · Local Masking Layer Applied</span>
+                    <span>Personal details masked before AI · Nothing saved after analysis</span>
                   </div>
 
                   <button

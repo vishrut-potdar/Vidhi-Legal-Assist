@@ -170,7 +170,7 @@ ${items
       <div className="flex flex-wrap items-center justify-between gap-3 no-print bg-[#FCFBF7] border border-[#DDD9CE] p-3 rounded-lg">
         {/* Category Tabs */}
         <div className="inline-flex rounded-md p-0.5 bg-[#EAE6DB] border border-[#DDD9CE] text-xs">
-          <button
+          <button aria-pressed={selectedCategory === 'ALL'}
             onClick={() => setSelectedCategory('ALL')}
             className={`px-3 py-1 rounded transition-all font-medium ${
               selectedCategory === 'ALL'
@@ -180,7 +180,7 @@ ${items
           >
             All Items ({items.length})
           </button>
-          <button
+          <button aria-pressed={selectedCategory === 'DOCUMENTS_VERIFICATION'}
             onClick={() => setSelectedCategory('DOCUMENTS_VERIFICATION')}
             className={`px-3 py-1 rounded transition-all font-medium ${
               selectedCategory === 'DOCUMENTS_VERIFICATION'
@@ -190,7 +190,7 @@ ${items
           >
             1. Documents Verification (5)
           </button>
-          <button
+          <button aria-pressed={selectedCategory === 'NEGOTIATION_PUNCH_LIST'}
             onClick={() => setSelectedCategory('NEGOTIATION_PUNCH_LIST')}
             className={`px-3 py-1 rounded transition-all font-medium ${
               selectedCategory === 'NEGOTIATION_PUNCH_LIST'
@@ -200,7 +200,7 @@ ${items
           >
             2. Negotiation Punch List (4)
           </button>
-          <button
+          <button aria-pressed={selectedCategory === 'REGISTRATION_DAY'}
             onClick={() => setSelectedCategory('REGISTRATION_DAY')}
             className={`px-3 py-1 rounded transition-all font-medium ${
               selectedCategory === 'REGISTRATION_DAY'
@@ -215,7 +215,7 @@ ${items
         {/* Status Filter */}
         <div className="flex items-center gap-1.5 text-xs font-mono">
           <span className="text-[#8C887B]">Filter:</span>
-          <select
+          <select aria-label="Filter checklist by status"
             value={selectedFilter}
             onChange={(e) => setSelectedFilter(e.target.value as any)}
             className="bg-white border border-[#C9C4B7] text-[#1C1C19] text-xs rounded px-2.5 py-1 font-medium"
@@ -269,7 +269,7 @@ ${items
               >
                 <div className="flex items-start gap-3.5">
                   {/* Interactive Checkbox */}
-                  <button
+                  <button aria-label={`${item.title}: ${isVerified ? 'verified' : isFlagged ? 'flagged for advocate' : 'pending'}. Press to change status`}
                     onClick={() => toggleItemStatus(item.id)}
                     className="mt-0.5 shrink-0 transition-transform active:scale-95 no-print"
                     title="Click to cycle status: Verified -> Pending -> Flagged for Advocate"

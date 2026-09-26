@@ -12,6 +12,8 @@ import { FullClauseExplanation, Finding, Severity, Language } from '../types';
 import { SourceSpanCitation } from './SourceSpanCitation';
 import { UncertaintyBadge } from './UncertaintyBadge';
 import { AIClauseModal } from './AIClauseModal';
+import { BilingualText } from './BilingualText';
+import { activateOnKey } from '../utils/a11y';
 
 interface ClauseByClauseViewProps {
   findings: Finding[];
@@ -121,7 +123,7 @@ export const ClauseByClauseView: React.FC<ClauseByClauseViewProps> = ({
           {/* Search */}
           <div className="relative flex-1">
             <Search className="w-4 h-4 text-[#8C887B] absolute left-3 top-2.5" />
-            <input
+            <input aria-label="Search clauses"
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -132,7 +134,7 @@ export const ClauseByClauseView: React.FC<ClauseByClauseViewProps> = ({
 
           {/* Quick Risk Filters */}
           <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0">
-            <button
+            <button aria-pressed={selectedRiskFilter === 'ALL'}
               onClick={() => setSelectedRiskFilter('ALL')}
               className={`px-3 py-1.5 rounded text-xs font-medium transition-colors shrink-0 ${
                 selectedRiskFilter === 'ALL'
@@ -142,7 +144,7 @@ export const ClauseByClauseView: React.FC<ClauseByClauseViewProps> = ({
             >
               All Clauses ({activeClauses.length})
             </button>
-            <button
+            <button aria-pressed={selectedRiskFilter === 'FLAGGED'}
               onClick={() => setSelectedRiskFilter('FLAGGED')}
               className={`px-3 py-1.5 rounded text-xs font-medium transition-colors shrink-0 flex items-center gap-1.5 ${
                 selectedRiskFilter === 'FLAGGED'
@@ -153,7 +155,7 @@ export const ClauseByClauseView: React.FC<ClauseByClauseViewProps> = ({
               <span className="w-2 h-2 rounded-full bg-current" />
               <span>Flagged Risks ({flaggedCount})</span>
             </button>
-            <button
+            <button aria-pressed={selectedRiskFilter === 'HIGH'}
               onClick={() => setSelectedRiskFilter('HIGH')}
               className={`px-3 py-1.5 rounded text-xs font-medium transition-colors shrink-0 ${
                 selectedRiskFilter === 'HIGH'
@@ -163,7 +165,7 @@ export const ClauseByClauseView: React.FC<ClauseByClauseViewProps> = ({
             >
               High Only (2)
             </button>
-            <button
+            <button aria-pressed={selectedRiskFilter === 'STANDARD'}
               onClick={() => setSelectedRiskFilter('STANDARD')}
               className={`px-3 py-1.5 rounded text-xs font-medium transition-colors shrink-0 ${
                 selectedRiskFilter === 'STANDARD'
@@ -182,7 +184,7 @@ export const ClauseByClauseView: React.FC<ClauseByClauseViewProps> = ({
             <Filter className="w-3 h-3" /> Topic:
           </span>
           {categories.map((cat) => (
-            <button
+            <button aria-pressed={selectedCategory === cat}
               key={cat}
               onClick={() => setSelectedCategory(cat)}
               className={`px-2.5 py-1 rounded text-xs transition-colors shrink-0 ${
@@ -221,7 +223,7 @@ export const ClauseByClauseView: React.FC<ClauseByClauseViewProps> = ({
               }`}
             >
               {/* Header Row */}
-              <div
+              <div role="button" tabIndex={0} onKeyDown={activateOnKey} aria-expanded={isExpanded}
                 onClick={() => toggleExpand(clause.clauseNumber)}
                 className="p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-3 cursor-pointer bg-gradient-to-r from-[#FAF8F5] to-[#FCFBF7] hover:bg-[#F5F2EA] transition-colors"
               >
@@ -281,7 +283,7 @@ export const ClauseByClauseView: React.FC<ClauseByClauseViewProps> = ({
                   </button>
 
                   {matchingFinding && (
-                    <button
+                    <button aria-pressed={matchingFinding.inAdvocateBrief}
                       onClick={(e) => {
                         e.stopPropagation();
                         onToggleBrief(matchingFinding.id);
@@ -338,13 +340,14 @@ export const ClauseByClauseView: React.FC<ClauseByClauseViewProps> = ({
                         <span>Plain-Language Explanation</span>
                         <span className="text-[#C38A2E]">WHAT THIS MEANS TO YOU</span>
                       </div>
-                      <p className="text-xs sm:text-[13px] text-[#1C1C19] leading-relaxed bg-white p-3 rounded border border-[#EFECE3] font-sans">
-                        {language === 'HI' && matchingFinding?.plainLanguageExplanationHindi
-                          ? matchingFinding.plainLanguageExplanationHindi
-                          : language === 'MR' && matchingFinding?.plainLanguageExplanationMarathi
-                          ? matchingFinding.plainLanguageExplanationMarathi
-                          : clause.plainExplanation}
-                      </p>
+                      <BilingualText
+                        language={language}
+                        en={matchingFinding?.plainLanguageExplanation || clause.plainExplanation}
+                        hi={matchingFinding?.plainLanguageExplanationHindi}
+                        mr={matchingFinding?.plainLanguageExplanationMarathi}
+                        className="text-xs sm:text-[13px] text-[#1C1C19] leading-relaxed bg-white p-3 rounded border border-[#EFECE3] font-sans"
+                        secondaryClassName="block mt-2 pt-2 border-t border-[#EFECE3] text-xs text-[#6F6D65]"
+                      />
                     </div>
                   </div>
 

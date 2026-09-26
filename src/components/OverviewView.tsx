@@ -17,6 +17,7 @@ import {
 } from '../data/mockData';
 import { RiskDistributionCard } from './RiskDistributionCard';
 import { ExecutiveSummarySection } from './ExecutiveSummarySection';
+import { activateOnKey } from '../utils/a11y';
 
 interface OverviewViewProps {
   documentInfo: DocumentInfo;
@@ -302,7 +303,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
               )}
 
               {/* Add document / check another document dashed callout */}
-              <div
+              <div role="button" tabIndex={0} onKeyDown={activateOnKey}
                 onClick={onOpenUpload}
                 className="m-3 p-3.5 rounded border border-dashed border-[#DDD9CE] hover:border-[#171714] bg-[#FAF8F2] flex items-center gap-3.5 cursor-pointer transition-colors"
               >
@@ -334,7 +335,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {/* Card 1: Red-Flag Rubric */}
-              <div
+              <div role="button" tabIndex={0} onKeyDown={activateOnKey}
                 onClick={onOpenRubric}
                 className="bg-[#FCFBF7] border border-[#DDD9CE] rounded-lg p-3.5 hover:border-[#8E4A3F] cursor-pointer transition-all shadow-2xs space-y-1.5 group"
               >
@@ -355,7 +356,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
               </div>
 
               {/* Card 2: Actionable Checklist */}
-              <div
+              <div role="button" tabIndex={0} onKeyDown={activateOnKey}
                 onClick={onOpenChecklist}
                 className="bg-[#FCFBF7] border border-[#DDD9CE] rounded-lg p-3.5 hover:border-[#C38A2E] cursor-pointer transition-all shadow-2xs space-y-1.5 group"
               >
@@ -376,7 +377,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
               </div>
 
               {/* Card 3: Dispute Pathways */}
-              <div
+              <div role="button" tabIndex={0} onKeyDown={activateOnKey}
                 onClick={onOpenPathways}
                 className="bg-[#FCFBF7] border border-[#DDD9CE] rounded-lg p-3.5 hover:border-[#58735C] cursor-pointer transition-all shadow-2xs space-y-1.5 group"
               >
@@ -397,7 +398,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
               </div>
 
               {/* Card 4: Document Comparison Diff */}
-              <div
+              <div role="button" tabIndex={0} onKeyDown={activateOnKey}
                 onClick={onOpenHistory}
                 className="bg-[#FCFBF7] border border-[#DDD9CE] rounded-lg p-3.5 hover:border-[#171714] cursor-pointer transition-all shadow-2xs space-y-1.5 group"
               >
@@ -435,7 +436,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               {/* Module 1: How property title passes in India */}
-              <div
+              <div role="button" tabIndex={0} onKeyDown={activateOnKey}
                 onClick={() => onOpenLearn('mod-02')}
                 className="bg-[#FCFBF7] border border-[#DDD9CE] rounded-lg p-3.5 flex flex-col justify-between hover:border-[#C9C4B7] cursor-pointer transition-all shadow-2xs min-h-[110px]"
               >
@@ -454,7 +455,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
               </div>
 
               {/* Module 2: Which court hears which dispute */}
-              <div
+              <div role="button" tabIndex={0} onKeyDown={activateOnKey}
                 onClick={() => onOpenLearn('mod-05')}
                 className="bg-[#FCFBF7] border border-[#DDD9CE] rounded-lg p-3.5 flex flex-col justify-between hover:border-[#C9C4B7] cursor-pointer transition-all shadow-2xs min-h-[110px]"
               >
@@ -471,7 +472,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
               </div>
 
               {/* Module 3: Stamp duty and registration */}
-              <div
+              <div role="button" tabIndex={0} onKeyDown={activateOnKey}
                 onClick={() => onOpenLearn('mod-07')}
                 className="bg-[#FCFBF7] border border-[#DDD9CE] rounded-lg p-3.5 flex flex-col justify-between hover:border-[#C9C4B7] cursor-pointer transition-all shadow-2xs min-h-[110px]"
               >
