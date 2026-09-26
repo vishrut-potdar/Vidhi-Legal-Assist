@@ -1,23 +1,70 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   X,
-  Camera,
   Upload,
+  FileText,
   FileCheck,
   Loader2,
   Scan,
-  AlertTriangle,
-  ArrowRight,
-  Sparkles,
+  AlertCircle,
+  CheckCircle,
 } from 'lucide-react';
 import { Language } from '../types';
+
+export interface AnalyzedDocumentResult {
+  id: string;
+  documentInfo: any;
+  summaryData: any;
+  pages: any[];
+  findings: any[];
+  fullClauses: any[];
+  missingDocuments: any[];
+  extractedTextPreview?: string;
+}
 
 interface UploadModalProps {
   isOpen: boolean;
   onClose: () => void;
   language: Language;
-  onUploadSuccess: (docTitle: string) => void;
+  onUploadSuccess: (analyzedDoc: AnalyzedDocumentResult) => void;
 }
+
+const SAMPLE_SALE_DEED_TEXT = `DEED OF ABSOLUTE SALE
+This Deed of Absolute Sale is made and executed on this 18th day of September 2026, at Pune, Maharashtra.
+
+BETWEEN:
+Shri Rajesh S. Verma, Indian Inhabitant, residing at Flat No. 12, Prathamesh Towers, Kalyani Nagar, Pune - 411006 (hereinafter referred to as the "VENDOR", which expression shall include his legal heirs, executors, and assigns) of the ONE PART;
+
+AND:
+Shri Rohan Sharma, Indian Inhabitant, residing at 404, Cypress Court, Viman Nagar, Pune - 411014 (hereinafter referred to as the "PURCHASER", which expression shall include his heirs and assigns) of the OTHER PART.
+
+WHEREAS the Vendor is seized and possessed of all that piece and parcel of residential premises bearing Flat No. 402, 4th Floor, Gulmohar Enclave CHSL, Kalyani Nagar, Pune 411006.
+
+NOW THIS DEED WITNESSETH AS FOLLOWS:
+1. Consideration: The total consideration agreed between the parties is ₹ 86,00,000 (Rupees Eighty Six Lakhs only), out of which ₹ 15,00,000 has been paid as earnest money.
+2. Title & Encumbrance: The property is subject to an outstanding housing mortgage with State Bank of India. The Purchaser agrees to disburse the balance amount of ₹ 71,00,000 to the Vendor directly, without requiring prior clearance of the bank mortgage or production of original title deeds at registration.
+3. Possession: The Vendor shall deliver physical vacant possession of Flat No. 402 in due course after the completion of registration, subject to the Vendor finding alternative accommodation. Time shall not be of the essence for possession handover.
+4. Outgoings & Taxes: Property taxes and society dues prior to the date of execution shall be adjusted mutually within six months post-registration.
+5. Defect Liability: The Purchaser takes the property on an 'as-is, where-is' condition. The Vendor's liability for structural or latent defects is limited to 12 months, after which no claims shall be entertained.
+6. Indemnity: The Purchaser shall indemnify and hold harmless the Vendor against all third-party disputes, including family succession claims or past municipal tax assessments.
+7. Dispute Resolution: Any dispute arising from this Deed shall be referred to sole arbitration in Mumbai, and all costs of arbitration shall be borne solely by the Purchaser.`;
+
+const SAMPLE_LEASE_TEXT = `RESIDENTIAL LEASE AGREEMENT
+This Leave and License Agreement is executed on 1st October 2026 at Pune, Maharashtra.
+
+BETWEEN:
+Mr. Anand Kulkarni, residing at Kothrud, Pune (hereinafter called the "LICENSOR / LESSOR") of the FIRST PART;
+AND:
+Ms. Priya Deshmukh, employed at IT Park, Hinjawadi, Pune (hereinafter called the "LICENSEE / LESSEE") of the SECOND PART.
+
+TERMS AND CONDITIONS:
+1. Premises: Flat 204, B-Wing, Green Meadows, Baner, Pune 411045.
+2. Period: 11 Months commencing from 1st October 2026.
+3. Monthly License Fee: ₹ 35,000 per month, payable in advance on or before the 5th day of every calendar month.
+4. Security Deposit: An interest-free refundable deposit of ₹ 1,50,000 paid via RTGS. The Licensor reserves the unilateral right to deduct painting and renovation charges of ₹ 30,000 at the end of tenure without providing itemized repair bills.
+5. Inspection & Entry: The Licensor may enter the premises at any hour of the day or night without prior written or telephonic notice to verify compliance.
+6. Termination: The Licensor may terminate this agreement with 24 hours notice in case of perceived disturbance. The Licensee must give 60 days prior written notice or forfeit the entire security deposit.
+7. Society Maintenance: All regular society maintenance charges and any special capital renovation assessments levied by the society shall be borne by the Licensee.`;
 
 export const UploadModal: React.FC<UploadModalProps> = ({
   isOpen,
@@ -25,214 +72,358 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   language,
   onUploadSuccess,
 }) => {
-  const [activeMode, setActiveMode] = useState<'upload' | 'camera'>('upload');
-  const [scanStep, setScanStep] = useState<
-    'idle' | 'detecting' | 'ocr' | 'flagging' | 'completed'
-  >('idle');
-  const [detectedPages, setDetectedPages] = useState(0);
+  const [activeTab, setActiveTab] = useState<'file' | 'paste' | 'samples'>('file');
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [pastedText, setPastedText] = useState<string>('');
+  const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const [processingStage, setProcessingStage] = useState<string>('');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
 
-  const startScanningSimulation = (title: string) => {
-    setScanStep('detecting');
-    setDetectedPages(1);
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const file = e.target.files[0];
+      setSelectedFile(file);
+      setErrorMessage(null);
+    }
+  };
 
-    const timer1 = setTimeout(() => {
-      setDetectedPages(8);
-      setScanStep('ocr');
-    }, 1200);
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const file = e.dataTransfer.files[0];
+      setSelectedFile(file);
+      setErrorMessage(null);
+    }
+  };
 
-    const timer2 = setTimeout(() => {
-      setDetectedPages(18);
-      setScanStep('flagging');
-    }, 2400);
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+  };
 
-    const timer3 = setTimeout(() => {
-      setScanStep('completed');
-    }, 3800);
+  const runAnalysis = async (customPayload?: { rawText?: string; fileName?: string }) => {
+    setIsProcessing(true);
+    setErrorMessage(null);
 
-    const timer4 = setTimeout(() => {
-      onUploadSuccess(title);
+    try {
+      let payload: any = {
+        language,
+      };
+
+      if (customPayload) {
+        payload.rawText = customPayload.rawText;
+        payload.fileName = customPayload.fileName || 'Pasted Legal Document';
+      } else if (activeTab === 'file' && selectedFile) {
+        payload.fileName = selectedFile.name;
+        payload.mimeType = selectedFile.type || 'application/pdf';
+
+        const isPdf = selectedFile.type === 'application/pdf' || selectedFile.name.endsWith('.pdf');
+        const isImage = selectedFile.type.startsWith('image/') || /\.(jpe?g|png|webp)$/i.test(selectedFile.name);
+
+        setProcessingStage(isImage ? 'Scanning image bytes for OCR analysis...' : 'Reading file bytes and preparing document stream...');
+        if (isPdf || isImage) {
+          // Read as Base64 for multimodal PDF or OCR image analysis
+          const base64Data = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+              const res = reader.result as string;
+              const base64 = res.split(',')[1] || res;
+              resolve(base64);
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(selectedFile);
+          });
+          payload.fileBase64 = base64Data;
+          payload.mimeType = selectedFile.type || (isImage ? 'image/jpeg' : 'application/pdf');
+        } else {
+          // Read as text
+          const textData = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsText(selectedFile);
+          });
+          payload.rawText = textData;
+        }
+      } else if (activeTab === 'paste') {
+        if (!pastedText.trim()) {
+          setErrorMessage('Please paste legal deed or contract text to analyze.');
+          setIsProcessing(false);
+          return;
+        }
+        payload.rawText = pastedText.trim();
+        payload.fileName = 'Pasted Contract Draft';
+      }
+
+      setProcessingStage('Sanitizing sensitive identifiers (PAN / Aadhaar / Bank details)...');
+      await new Promise((r) => setTimeout(r, 600));
+
+      setProcessingStage('Transcribing clauses & section boundaries with Gemini 3.8 Flash...');
+      
+      const res = await fetch('/api/document/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        throw new Error(`Server returned error code ${res.status}`);
+      }
+
+      setProcessingStage('Auditing covenants against Transfer of Property Act & RERA...');
+      const analyzedDoc: AnalyzedDocumentResult = await res.json();
+
+      setProcessingStage('Formulating advocate queries and risk summary...');
+      await new Promise((r) => setTimeout(r, 500));
+
+      onUploadSuccess(analyzedDoc);
       onClose();
-      setScanStep('idle');
-    }, 4600);
-
-    return () => {
-      clearTimeout(timer1);
-      clearTimeout(timer2);
-      clearTimeout(timer3);
-      clearTimeout(timer4);
-    };
+    } catch (err: any) {
+      console.error('Document analysis failed:', err);
+      setErrorMessage(
+        err.message || 'Failed to analyze document. Please check the file or try pasting contract text.'
+      );
+    } finally {
+      setIsProcessing(false);
+      setProcessingStage('');
+    }
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fade-in">
-      <div className="bg-[#FCFBF7] border border-[#DDD9CE] rounded-xl max-w-lg w-full p-6 shadow-2xl space-y-5 relative overflow-hidden">
+      <div className="bg-[#FCFBF7] border border-[#DDD9CE] rounded-xl max-w-xl w-full p-6 shadow-2xl space-y-5 relative overflow-hidden text-[#1C1C19]">
         {/* Modal Header */}
         <div className="flex items-start justify-between pb-3 border-b border-[#F3F0E8]">
           <div>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-[#C38A2E] font-mono">
-              DOCUMENT INGESTION
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#C38A2E] font-mono">
+                REAL DOCUMENT INGESTION
+              </span>
+              <span className="text-[10px] font-mono bg-[#EAE6DB] px-1.5 py-0.2 rounded text-[#1C1C19]">
+                Gemini 3.8 Flash
+              </span>
+            </div>
             <h2 className="text-lg font-semibold text-[#1C1C19] font-serif mt-0.5">
-              Check a Legal Document
+              Analyze a Legal Document
             </h2>
             <p className="text-xs text-[#6F6D65]">
-              Upload a PDF draft or photograph physical pages for plain-language review.
+              Upload any PDF draft or paste agreement text for instant statutory scrutiny.
             </p>
           </div>
 
           <button
             onClick={onClose}
-            className="p-1 rounded-md text-[#96938A] hover:text-[#1C1C19] hover:bg-[#F3F0E8]"
+            disabled={isProcessing}
+            className="p-1 rounded-md text-[#96938A] hover:text-[#1C1C19] hover:bg-[#F3F0E8] disabled:opacity-50"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Scan / Processing Simulation State */}
-        {scanStep !== 'idle' ? (
-          <div className="py-8 px-4 text-center space-y-4">
-            <div className="relative w-20 h-20 mx-auto flex items-center justify-center">
+        {/* Live Processing State */}
+        {isProcessing ? (
+          <div className="py-10 px-4 text-center space-y-4">
+            <div className="relative w-16 h-16 mx-auto flex items-center justify-center">
               <div className="absolute inset-0 rounded-full border-4 border-[#F2E6C9] animate-pulse" />
               <div className="absolute inset-2 rounded-full border-2 border-t-[#C38A2E] animate-spin" />
-              <Scan className="w-8 h-8 text-[#C38A2E]" />
+              <Scan className="w-6 h-6 text-[#C38A2E]" />
             </div>
 
-            <div className="space-y-1">
-              <div className="text-sm font-semibold text-[#1C1C19] font-serif">
-                {scanStep === 'detecting' && 'Detecting document borders & page orientation...'}
-                {scanStep === 'ocr' && `Extracting clauses across ${detectedPages} pages...`}
-                {scanStep === 'flagging' && 'Cross-referencing Maharashtra property risk clauses...'}
-                {scanStep === 'completed' && 'Analysis complete! Generating citizen summary...'}
-              </div>
-              <p className="text-xs text-[#6F6D65]">
-                {scanStep === 'flagging'
-                  ? 'Analyzing encumbrance, possession delays, and indemnity limitations...'
-                  : 'Preserving original clause wording alongside plain explanations'}
+            <div className="space-y-1.5 max-w-sm mx-auto">
+              <h3 className="text-sm font-semibold text-[#1C1C19] font-serif">
+                Running Statutory Scrutiny Engine...
+              </h3>
+              <p className="text-xs text-[#6F6D65] font-mono leading-relaxed min-h-[36px]">
+                {processingStage || 'Processing document...'}
               </p>
             </div>
 
-            {/* Progress Bar */}
             <div className="w-full bg-[#E8E4D9] h-1.5 rounded-full overflow-hidden max-w-xs mx-auto">
-              <div
-                className="h-full bg-[#C38A2E] transition-all duration-700"
-                style={{
-                  width:
-                    scanStep === 'detecting'
-                      ? '25%'
-                      : scanStep === 'ocr'
-                      ? '55%'
-                      : scanStep === 'flagging'
-                      ? '85%'
-                      : '100%',
-                }}
-              />
+              <div className="h-full bg-[#C38A2E] animate-pulse w-3/4 rounded-full" />
             </div>
+            <p className="text-[10px] text-[#8C887B] font-mono">
+              PII is automatically masked before sending to Gemini API
+            </p>
           </div>
         ) : (
-          /* Standard Ingestion Form */
+          /* Normal Ingestion Interface */
           <div className="space-y-4">
-            {/* Input Selection Tabs */}
-            <div className="grid grid-cols-2 gap-2 p-1 bg-[#F3F0E8] rounded-lg border border-[#DDD9CE] text-xs font-medium">
+            {/* Tabs */}
+            <div className="grid grid-cols-3 gap-1.5 p-1 bg-[#F3F0E8] rounded-lg border border-[#DDD9CE] text-xs font-medium">
               <button
-                onClick={() => setActiveMode('upload')}
-                className={`py-2 rounded flex items-center justify-center gap-1.5 transition-all ${
-                  activeMode === 'upload'
-                    ? 'bg-[#FCFBF7] text-[#1C1C19] shadow-xs'
+                onClick={() => setActiveTab('file')}
+                className={`py-1.5 rounded flex items-center justify-center gap-1.5 transition-all ${
+                  activeTab === 'file'
+                    ? 'bg-[#FCFBF7] text-[#1C1C19] shadow-xs font-semibold'
                     : 'text-[#6F6D65]'
                 }`}
               >
                 <Upload className="w-3.5 h-3.5" />
-                <span>Upload PDF Document</span>
+                <span>Upload PDF / File</span>
               </button>
               <button
-                onClick={() => setActiveMode('camera')}
-                className={`py-2 rounded flex items-center justify-center gap-1.5 transition-all ${
-                  activeMode === 'camera'
-                    ? 'bg-[#FCFBF7] text-[#1C1C19] shadow-xs'
+                onClick={() => setActiveTab('paste')}
+                className={`py-1.5 rounded flex items-center justify-center gap-1.5 transition-all ${
+                  activeTab === 'paste'
+                    ? 'bg-[#FCFBF7] text-[#1C1C19] shadow-xs font-semibold'
                     : 'text-[#6F6D65]'
                 }`}
               >
-                <Camera className="w-3.5 h-3.5" />
-                <span>Photograph Pages</span>
+                <FileText className="w-3.5 h-3.5" />
+                <span>Paste Contract Text</span>
+              </button>
+              <button
+                onClick={() => setActiveTab('samples')}
+                className={`py-1.5 rounded flex items-center justify-center gap-1.5 transition-all ${
+                  activeTab === 'samples'
+                    ? 'bg-[#FCFBF7] text-[#1C1C19] shadow-xs font-semibold'
+                    : 'text-[#6F6D65]'
+                }`}
+              >
+                <FileCheck className="w-3.5 h-3.5" />
+                <span>Quick Presets</span>
               </button>
             </div>
 
-            {activeMode === 'upload' ? (
-              <div
-                onClick={() =>
-                  startScanningSimulation('Sale Deed — Revised Draft v2.2 (Pune)')
-                }
-                className="border-2 border-dashed border-[#C9C4B7] hover:border-[#171714] rounded-lg p-8 text-center bg-[#F7F4EC]/50 hover:bg-[#F7F4EC] transition-all cursor-pointer space-y-3"
-              >
-                <div className="w-12 h-12 rounded-full bg-[#FCFBF7] border border-[#DDD9CE] flex items-center justify-center mx-auto text-[#C38A2E]">
-                  <Upload className="w-6 h-6" />
-                </div>
-                <div>
-                  <span className="text-xs font-semibold text-[#1C1C19] block">
-                    Click to select Sale Deed or Agreement to Sell (PDF)
-                  </span>
-                  <span className="text-[11px] text-[#96938A] mt-0.5 block">
-                    Supports stamped e-registration deeds, agreements, or drafts up to 50 pages
-                  </span>
-                </div>
+            {/* Error Message */}
+            {errorMessage && (
+              <div className="p-3 bg-[#FAF3F1] border border-[#EADBDA] rounded-lg text-xs text-[#8E4A3F] flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{errorMessage}</span>
               </div>
-            ) : (
-              <div
-                onClick={() =>
-                  startScanningSimulation('Captured Deed Pages (Camera OCR)')
-                }
-                className="border-2 border-dashed border-[#C9C4B7] hover:border-[#171714] rounded-lg p-8 text-center bg-[#F7F4EC]/50 hover:bg-[#F7F4EC] transition-all cursor-pointer space-y-3"
-              >
-                <div className="w-12 h-12 rounded-full bg-[#FCFBF7] border border-[#DDD9CE] flex items-center justify-center mx-auto text-[#171714]">
-                  <Camera className="w-6 h-6" />
+            )}
+
+            {/* TAB 1: File Upload */}
+            {activeTab === 'file' && (
+              <div className="space-y-3">
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFileChange}
+                  accept=".pdf,.txt,.docx,.doc"
+                  className="hidden"
+                />
+
+                <div
+                  onDrop={handleDrop}
+                  onDragOver={handleDragOver}
+                  onClick={() => fileInputRef.current?.click()}
+                  className="border-2 border-dashed border-[#C9C4B7] hover:border-[#171714] rounded-lg p-7 text-center bg-[#F7F4EC]/40 hover:bg-[#F7F4EC] transition-all cursor-pointer space-y-2.5"
+                >
+                  <div className="w-10 h-10 rounded-full bg-[#FCFBF7] border border-[#DDD9CE] flex items-center justify-center mx-auto text-[#C38A2E]">
+                    <Upload className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <span className="text-xs font-semibold text-[#1C1C19] block">
+                      {selectedFile ? selectedFile.name : 'Click to choose PDF or drag & drop here'}
+                    </span>
+                    <span className="text-[11px] text-[#8C887B] mt-0.5 block font-mono">
+                      {selectedFile
+                        ? `${(selectedFile.size / 1024).toFixed(1)} KB · Ready to analyze`
+                        : 'Supports PDF drafts, registered deeds, agreements, or plain text'}
+                    </span>
+                  </div>
                 </div>
-                <div>
-                  <span className="text-xs font-semibold text-[#1C1C19] block">
-                    Open Camera to photograph document page-by-page
-                  </span>
-                  <span className="text-[11px] text-[#96938A] mt-0.5 block">
-                    Automatic page edge detection & high-contrast shadow removal
-                  </span>
+
+                <div className="flex items-center justify-end gap-2 pt-1">
+                  <button
+                    onClick={onClose}
+                    className="px-3.5 py-1.5 rounded border border-[#DDD9CE] text-xs font-medium text-[#6F6D65] hover:text-[#1C1C19]"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => runAnalysis()}
+                    disabled={!selectedFile}
+                    className="px-4 py-1.5 bg-[#171714] text-white rounded text-xs font-medium hover:bg-[#2C2B26] transition-colors shadow-xs disabled:opacity-40"
+                  >
+                    Analyze with Vidhi AI →
+                  </button>
                 </div>
               </div>
             )}
 
-            {/* Quick Sample Presets */}
-            <div className="pt-2 border-t border-[#F3F0E8] space-y-2">
-              <span className="text-[10px] uppercase font-bold tracking-wider text-[#96938A] font-mono block">
-                Or inspect a sample document:
-              </span>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <button
-                  onClick={() =>
-                    startScanningSimulation('Sale Deed — Flat 402, Kalyani Nagar')
-                  }
-                  className="p-2.5 bg-[#F7F4EC] hover:bg-[#F2E6C9] rounded border border-[#DDD9CE] text-left text-xs transition-colors"
-                >
-                  <div className="font-semibold text-[#1C1C19]">
-                    Flat 402, Kalyani Nagar
-                  </div>
-                  <div className="text-[10px] text-[#6F6D65]">
-                    18 pages · 7 flagged risk clauses
-                  </div>
-                </button>
-                <button
-                  onClick={() =>
-                    startScanningSimulation('Agreement to Sell — Hinjawadi Phase 1')
-                  }
-                  className="p-2.5 bg-[#F7F4EC] hover:bg-[#F2E6C9] rounded border border-[#DDD9CE] text-left text-xs transition-colors"
-                >
-                  <div className="font-semibold text-[#1C1C19]">
-                    Hinjawadi Resale Agreement
-                  </div>
-                  <div className="text-[10px] text-[#6F6D65]">
-                    12 pages · RERA builder clauses
-                  </div>
-                </button>
+            {/* TAB 2: Direct Paste */}
+            {activeTab === 'paste' && (
+              <div className="space-y-3">
+                <textarea
+                  value={pastedText}
+                  onChange={(e) => setPastedText(e.target.value)}
+                  placeholder="Paste legal contract text, clauses, or draft agreement here (e.g., Sale Deed, Lease Agreement, Builder-Buyer Agreement)..."
+                  rows={8}
+                  className="w-full text-xs font-mono p-3 rounded-lg border border-[#C9C4B7] bg-white text-[#1C1C19] focus:outline-none focus:ring-1 focus:ring-[#171714] leading-relaxed"
+                />
+
+                <div className="flex items-center justify-between text-[11px] font-mono text-[#8C887B]">
+                  <span>{pastedText.length} characters</span>
+                  <button
+                    onClick={() => runAnalysis()}
+                    disabled={!pastedText.trim()}
+                    className="px-4 py-1.5 bg-[#171714] text-white rounded text-xs font-medium hover:bg-[#2C2B26] transition-colors shadow-xs disabled:opacity-40"
+                  >
+                    Analyze Text with Vidhi AI →
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
+
+            {/* TAB 3: Sample Presets */}
+            {activeTab === 'samples' && (
+              <div className="space-y-3">
+                <p className="text-xs text-[#6F6D65]">
+                  Select a pre-formatted legal document to immediately test statutory scrutiny:
+                </p>
+
+                <div className="space-y-2">
+                  <div
+                    onClick={() =>
+                      runAnalysis({
+                        rawText: SAMPLE_SALE_DEED_TEXT,
+                        fileName: 'Sale Deed — Flat 402, Kalyani Nagar',
+                      })
+                    }
+                    className="p-3 bg-[#F7F4EC] hover:bg-[#F2E6C9] rounded-lg border border-[#DDD9CE] cursor-pointer transition-colors space-y-1"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-[#1C1C19]">
+                        Maharashtra Property Sale Deed (Resale Flat)
+                      </span>
+                      <span className="text-[10px] font-mono bg-[#FAF3F1] text-[#8E4A3F] border border-[#EADBDA] px-2 py-0.5 rounded font-bold">
+                        3 High Risks
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-[#6F6D65]">
+                      Flat 402, Kalyani Nagar, Pune · ₹86 Lakhs · Contains unreleased bank mortgage &amp; vague possession clauses.
+                    </p>
+                  </div>
+
+                  <div
+                    onClick={() =>
+                      runAnalysis({
+                        rawText: SAMPLE_LEASE_TEXT,
+                        fileName: 'Leave and License Agreement — Baner Flat',
+                      })
+                    }
+                    className="p-3 bg-[#F7F4EC] hover:bg-[#F2E6C9] rounded-lg border border-[#DDD9CE] cursor-pointer transition-colors space-y-1"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-[#1C1C19]">
+                        11-Month Residential Rent Agreement (Leave &amp; License)
+                      </span>
+                      <span className="text-[10px] font-mono bg-[#F9F5EC] text-[#B08427] border border-[#EADFC7] px-2 py-0.5 rounded font-bold">
+                        Caution
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-[#6F6D65]">
+                      Flat 204, Baner, Pune · ₹35,000/mo · Contains unfair deposit deductions and 24-hr unilateral termination.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -9,7 +9,7 @@ import {
   History,
   Info,
 } from 'lucide-react';
-import { Language, DocumentInfo, MissingDocument, Finding, Severity } from '../types';
+import { Language, DocumentInfo, MissingDocument, Finding, Severity, IngestedDocument } from '../types';
 import {
   learningModules,
   matterTimeline,
@@ -22,6 +22,11 @@ interface OverviewViewProps {
   documentInfo: DocumentInfo;
   findings?: Finding[];
   language: Language;
+  customSummaryData?: any;
+  documentLibrary?: IngestedDocument[];
+  activeDocId?: string;
+  onSwitchDocument?: (id: string) => void;
+  onRemoveDocument?: (id: string) => void;
   onOpenReport: (severity?: 'ALL' | Severity) => void;
   onOpenBrief: () => void;
   onOpenLearn: (moduleId?: string) => void;
@@ -39,8 +44,13 @@ interface OverviewViewProps {
 
 export const OverviewView: React.FC<OverviewViewProps> = ({
   documentInfo,
-  findings,
+  findings = [],
   language,
+  customSummaryData,
+  documentLibrary = [],
+  activeDocId,
+  onSwitchDocument,
+  onRemoveDocument,
   onOpenReport,
   onOpenBrief,
   onOpenLearn,
@@ -108,6 +118,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
       {/* 3. AI Document Intelligence & Executive Synthesis */}
       <ExecutiveSummarySection
         language={language}
+        customSummaryData={customSummaryData}
         onOpenAdvocateBrief={onOpenBrief}
         onOpenDocument={() => onOpenReport()}
         onOpenPipelineViewer={onOpenPipelineViewer}
@@ -123,102 +134,174 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
               <span className="text-[11px] font-mono uppercase tracking-[0.14em] text-[#6F6D65] font-semibold">
                 DOCUMENTS UNDER REVIEW
               </span>
-              <button
-                onClick={() => onOpenReport()}
-                className="text-xs text-[#1C1C19] hover:underline font-medium"
-              >
-                View all (4)
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={onOpenUpload}
+                  className="text-xs text-[#8C621E] hover:underline font-medium"
+                >
+                  + Upload Document
+                </button>
+                <span className="text-[#DDD9CE]">·</span>
+                <button
+                  onClick={() => onOpenReport()}
+                  className="text-xs text-[#1C1C19] hover:underline font-medium"
+                >
+                  View Active Report
+                </button>
+              </div>
             </div>
 
             <div className="bg-[#FCFBF7] border border-[#DDD9CE] rounded-lg divide-y divide-[#EFECE3] shadow-xs overflow-hidden">
-              {/* Row 1: Sale deed — Flat 402, Kalyani Nagar */}
-              <div className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-[#FAF9F5] transition-colors">
-                <div className="flex items-start gap-3.5">
-                  <div className="w-9 h-11 rounded border border-[#DDD9CE] bg-white flex flex-col items-center justify-center gap-1 shrink-0 p-1 shadow-2xs">
-                    <div className="w-5 h-0.5 bg-[#171714] rounded-full" />
-                    <div className="w-5 h-0.5 bg-[#8C887B] rounded-full" />
-                    <div className="w-3.5 h-0.5 bg-[#C9C4B7] rounded-full self-start ml-0.5" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <h2 className="font-serif text-base sm:text-lg font-medium text-[#1C1C19] leading-snug">
-                      Sale deed — Flat 402, Kalyani Nagar
-                    </h2>
-                    <p className="text-xs text-[#6F6D65]">
-                      Reviewed 2 hours ago · 18 pages · 7 points flagged
-                    </p>
-                    <div className="flex items-center gap-1.5 pt-0.5">
-                      <button
-                        onClick={() => onOpenReport('HIGH')}
-                        className="inline-flex items-center text-[10px] font-mono font-semibold bg-[#FAF3F1] hover:bg-[#F5ECE8] text-[#8E4A3F] border border-[#EADBDA] px-2 py-0.5 rounded transition-colors cursor-pointer"
-                        title="Filter by High severity"
-                      >
-                        2 HIGH
-                      </button>
-                      <button
-                        onClick={() => onOpenReport('MEDIUM')}
-                        className="inline-flex items-center text-[10px] font-mono font-semibold bg-[#F3ECD7] hover:bg-[#EFE6CC] text-[#B08427] border border-[#E8DAB7] px-2 py-0.5 rounded transition-colors cursor-pointer"
-                        title="Filter by Medium severity"
-                      >
-                        3 MEDIUM
-                      </button>
-                      <button
-                        onClick={() => onOpenReport('LOW')}
-                        className="inline-flex items-center text-[10px] font-mono font-semibold bg-[#E6EEE6] hover:bg-[#DEE8DE] text-[#58735C] border border-[#D5E2D5] px-2 py-0.5 rounded transition-colors cursor-pointer"
-                        title="Filter by Low severity"
-                      >
-                        2 LOW
-                      </button>
+              {/* Dynamic Document Library List */}
+              {documentLibrary && documentLibrary.length > 0 ? (
+                documentLibrary.map((doc) => {
+                  const isActive = doc.id === (activeDocId || documentInfo.id);
+                  const docInfo = isActive ? documentInfo : doc.documentInfo;
+                  const docFindings = isActive ? findings : doc.findings;
+
+                  return (
+                    <div
+                      key={doc.id}
+                      className={`p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-colors ${
+                        isActive ? 'bg-[#FCFBF7]' : 'hover:bg-[#FAF9F5] opacity-90'
+                      }`}
+                    >
+                      <div className="flex items-start gap-3.5">
+                        <div className="w-9 h-11 rounded border border-[#DDD9CE] bg-white flex flex-col items-center justify-center gap-1 shrink-0 p-1 shadow-2xs">
+                          <div className={`w-5 h-0.5 rounded-full ${isActive ? 'bg-[#171714]' : 'bg-[#8C887B]'}`} />
+                          <div className="w-5 h-0.5 bg-[#8C887B] rounded-full" />
+                          <div className="w-3.5 h-0.5 bg-[#C9C4B7] rounded-full self-start ml-0.5" />
+                        </div>
+                        <div className="space-y-1.5">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h2 className="font-serif text-base sm:text-lg font-medium text-[#1C1C19] leading-snug">
+                              {docInfo.title}
+                            </h2>
+                            {isActive ? (
+                              <span className="text-[9px] font-mono bg-[#EAE6DB] text-[#1C1C19] px-1.5 py-0.2 rounded font-semibold uppercase">
+                                ACTIVE DRAFT
+                              </span>
+                            ) : (
+                              <span className="text-[9px] font-mono bg-[#F0EDE6] text-[#6F6D65] px-1.5 py-0.2 rounded font-medium">
+                                Ingested
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-[#6F6D65]">
+                            Reviewed {docInfo.reviewedTimeAgo || doc.uploadedAt} · {docInfo.pageCount} pages · {docFindings.length} points flagged
+                          </p>
+                          <div className="flex items-center gap-1.5 pt-0.5">
+                            <button
+                              onClick={() => {
+                                if (!isActive && onSwitchDocument) onSwitchDocument(doc.id);
+                                onOpenReport('HIGH');
+                              }}
+                              className="inline-flex items-center text-[10px] font-mono font-semibold bg-[#FAF3F1] hover:bg-[#F5ECE8] text-[#8E4A3F] border border-[#EADBDA] px-2 py-0.5 rounded transition-colors cursor-pointer"
+                              title="Filter by High severity"
+                            >
+                              {docInfo.highCount} HIGH
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (!isActive && onSwitchDocument) onSwitchDocument(doc.id);
+                                onOpenReport('MEDIUM');
+                              }}
+                              className="inline-flex items-center text-[10px] font-mono font-semibold bg-[#F3ECD7] hover:bg-[#EFE6CC] text-[#B08427] border border-[#E8DAB7] px-2 py-0.5 rounded transition-colors cursor-pointer"
+                              title="Filter by Medium severity"
+                            >
+                              {docInfo.mediumCount} MEDIUM
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (!isActive && onSwitchDocument) onSwitchDocument(doc.id);
+                                onOpenReport('LOW');
+                              }}
+                              className="inline-flex items-center text-[10px] font-mono font-semibold bg-[#E6EEE6] hover:bg-[#DEE8DE] text-[#58735C] border border-[#D5E2D5] px-2 py-0.5 rounded transition-colors cursor-pointer"
+                              title="Filter by Low severity"
+                            >
+                              {docInfo.lowCount} LOW
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Score and Switch / Open Report Button */}
+                      <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-center gap-2.5 shrink-0">
+                        <div className="text-right">
+                          <span
+                            className={`font-mono text-xl sm:text-2xl font-bold leading-none ${
+                              docInfo.riskScore < 70
+                                ? 'text-[#8E4A3F]'
+                                : docInfo.riskScore < 85
+                                ? 'text-[#B08427]'
+                                : 'text-[#58735C]'
+                            }`}
+                          >
+                            {docInfo.riskScore}
+                          </span>
+                          <span className="text-xs text-[#8C887B] font-mono">/100</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {isActive ? (
+                            <button
+                              onClick={() => onOpenReport()}
+                              className="px-3.5 py-1.5 text-xs font-medium text-white bg-[#171714] rounded hover:bg-[#2C2B26] transition-colors shadow-xs cursor-pointer"
+                            >
+                              Open report
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => onSwitchDocument && onSwitchDocument(doc.id)}
+                              className="px-3 py-1.5 text-xs font-medium text-[#1C1C19] bg-white border border-[#DDD9CE] rounded hover:bg-[#F7F4EC] transition-colors shadow-2xs cursor-pointer"
+                            >
+                              Switch to this
+                            </button>
+                          )}
+                          {onRemoveDocument && documentLibrary.length > 1 && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onRemoveDocument(doc.id);
+                              }}
+                              className="p-1.5 text-[#8C887B] hover:text-[#8E4A3F] rounded hover:bg-black/5 text-xs"
+                              title="Remove from workspace"
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                /* Fallback single document */
+                <div className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-start gap-3.5">
+                    <div className="w-9 h-11 rounded border border-[#DDD9CE] bg-white flex flex-col items-center justify-center gap-1 shrink-0 p-1 shadow-2xs">
+                      <div className="w-5 h-0.5 bg-[#171714] rounded-full" />
+                      <div className="w-5 h-0.5 bg-[#8C887B] rounded-full" />
+                      <div className="w-3.5 h-0.5 bg-[#C9C4B7] rounded-full self-start ml-0.5" />
+                    </div>
+                    <div className="space-y-1">
+                      <h2 className="font-serif text-base font-medium text-[#1C1C19]">
+                        {documentInfo.title}
+                      </h2>
+                      <p className="text-xs text-[#6F6D65]">
+                        {documentInfo.pageCount} pages · {findings.length} points flagged
+                      </p>
                     </div>
                   </div>
-                </div>
-
-                {/* Score and Open Report Button */}
-                <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-center gap-3 shrink-0">
-                  <div className="text-right">
-                    <span className="font-mono text-2xl font-bold text-[#8E4A3F] leading-none">
-                      62
-                    </span>
-                    <span className="text-xs text-[#8C887B] font-mono">/100</span>
-                  </div>
                   <button
                     onClick={() => onOpenReport()}
-                    className="px-3.5 py-1.5 text-xs font-medium text-white bg-[#171714] rounded hover:bg-[#2C2B26] transition-colors shadow-xs"
+                    className="px-3.5 py-1.5 text-xs font-medium text-white bg-[#171714] rounded hover:bg-[#2C2B26] transition-colors"
                   >
                     Open report
                   </button>
                 </div>
-              </div>
+              )}
 
-              {/* Row 2: Encumbrance certificate — 2009 to 2026 */}
-              <div className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-[#FAF9F5] transition-colors">
-                <div className="flex items-start gap-3.5">
-                  <div className="w-9 h-11 rounded border border-[#DDD9CE] bg-white flex flex-col items-center justify-center gap-1 shrink-0 p-1 shadow-2xs">
-                    <div className="w-5 h-0.5 bg-[#8C887B] rounded-full" />
-                    <div className="w-5 h-0.5 bg-[#8C887B] rounded-full" />
-                    <div className="w-4 h-0.5 bg-[#C9C4B7] rounded-full" />
-                  </div>
-                  <div className="space-y-1">
-                    <h3 className="font-serif text-base sm:text-lg font-medium text-[#1C1C19] leading-snug">
-                      Encumbrance certificate — 2009 to 2026
-                    </h3>
-                    <p className="text-xs text-[#6F6D65]">
-                      Uploaded yesterday · 6 pages · no entries flagged
-                    </p>
-                  </div>
-                </div>
-
-                <div className="shrink-0 self-end sm:self-center">
-                  <button
-                    onClick={() => onOpenReport()}
-                    className="px-3.5 py-1.5 text-xs font-medium text-[#1C1C19] bg-white border border-[#DDD9CE] rounded hover:bg-[#F7F4EC] transition-colors shadow-2xs"
-                  >
-                    Open report
-                  </button>
-                </div>
-              </div>
-
-              {/* Row 3: Add missing documents dashed callout */}
+              {/* Add document / check another document dashed callout */}
               <div
                 onClick={onOpenUpload}
                 className="m-3 p-3.5 rounded border border-dashed border-[#DDD9CE] hover:border-[#171714] bg-[#FAF8F2] flex items-center gap-3.5 cursor-pointer transition-colors"
@@ -228,10 +311,10 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
                 </div>
                 <div>
                   <h4 className="text-xs font-medium text-[#1C1C19]">
-                    Add the documents still missing
+                    Analyze another deed or contract
                   </h4>
                   <p className="text-[11px] text-[#6F6D65] leading-snug mt-0.5">
-                    For a flat purchase, Vidhi also looks for the title chain, approved plan, society NOC and the latest tax receipt.
+                    Upload any PDF agreement, draft deed, or paste clauses to run statutory Gemini AI scrutiny
                   </p>
                 </div>
               </div>

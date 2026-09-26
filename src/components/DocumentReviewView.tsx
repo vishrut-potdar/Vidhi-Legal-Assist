@@ -25,6 +25,7 @@ import {
   ViewMode,
   DocumentAnnotation,
   HighlightColor,
+  FullClauseExplanation,
 } from '../types';
 import { ClauseByClauseView } from './ClauseByClauseView';
 import { SourceSpanCitation } from './SourceSpanCitation';
@@ -33,12 +34,14 @@ import { DisclaimerBanner } from './DisclaimerBanner';
 import { AnnotationModal } from './AnnotationModal';
 import { DocumentAnnotationsPanel } from './DocumentAnnotationsPanel';
 import { AIClauseModal } from './AIClauseModal';
-import { deedPages, DocumentLine } from '../data/documentPagesData';
+import { deedPages, DocumentLine, DocumentPage } from '../data/documentPagesData';
 import { initialDocumentAnnotations } from '../data/mockData';
 
 interface DocumentReviewViewProps {
   documentInfo: DocumentInfo;
   findings: Finding[];
+  pages?: DocumentPage[];
+  clauses?: FullClauseExplanation[];
   language: Language;
   onLanguageChange?: (lang: Language) => void;
   onSelectFinding: (finding: Finding) => void;
@@ -72,6 +75,8 @@ const tagMetaMap: Record<NonNullable<DocumentAnnotation['tag']>, { label: string
 export const DocumentReviewView: React.FC<DocumentReviewViewProps> = ({
   documentInfo,
   findings,
+  pages,
+  clauses,
   language,
   onLanguageChange,
   onSelectFinding,
@@ -90,7 +95,10 @@ export const DocumentReviewView: React.FC<DocumentReviewViewProps> = ({
   const [activeFindingId, setActiveFindingId] = useState<string>('f-1');
 
   // Page navigation & Annotate state
-  const [currentPageNumber, setCurrentPageNumber] = useState<number>(7);
+  const activePages = pages && pages.length > 0 ? pages : deedPages;
+  const [currentPageNumber, setCurrentPageNumber] = useState<number>(() =>
+    activePages.length > 0 ? activePages[0].pageNumber : 1
+  );
   const [isAnnotateMode, setIsAnnotateMode] = useState<boolean>(false);
   const [activeHighlightColor, setActiveHighlightColor] = useState<HighlightColor>('yellow');
   const [isAnnotationModalOpen, setIsAnnotationModalOpen] = useState<boolean>(false);
@@ -145,8 +153,23 @@ export const DocumentReviewView: React.FC<DocumentReviewViewProps> = ({
 
   const briefCount = findings.filter((f) => f.inAdvocateBrief).length;
 
+  useEffect(() => {
+    if (pages && pages.length > 0) {
+      if (!pages.some((p) => p.pageNumber === currentPageNumber)) {
+        setCurrentPageNumber(pages[0].pageNumber);
+      }
+    }
+  }, [pages]);
+
   // Find page data
-  const currentPage = deedPages.find((p) => p.pageNumber === currentPageNumber) || deedPages.find((p) => p.pageNumber === 7) || deedPages[0];
+  const currentPage =
+    activePages.find((p) => p.pageNumber === currentPageNumber) ||
+    activePages.find((p) => p.pageNumber === 7) ||
+    activePages[0] || {
+      pageNumber: 1,
+      headerTitle: 'PAGE 1',
+      lines: [],
+    };
   const pageAnnotations = currentAnnotations.filter((a) => a.pageNumber === currentPageNumber);
 
   const handleLineClick = (line: DocumentLine) => {
@@ -190,11 +213,11 @@ export const DocumentReviewView: React.FC<DocumentReviewViewProps> = ({
             VIDHI
           </span>
           <span className="text-[#3A3831] select-none">|</span>
-          <span className="text-sm font-medium text-[#FAF8F5]">
-            Sale deed — Flat 402, Kalyani Nagar
+          <span className="text-sm font-medium text-[#FAF8F5] truncate max-w-xs sm:max-w-md" title={documentInfo.title}>
+            {documentInfo.title}
           </span>
-          <span className="border border-[#38352E] px-2.5 py-0.5 rounded-full text-[10px] font-mono text-[#A8A49A] uppercase tracking-wider">
-            18 PAGES · DRAFT V3
+          <span className="border border-[#38352E] px-2.5 py-0.5 rounded-full text-[10px] font-mono text-[#A8A49A] uppercase tracking-wider shrink-0">
+            {activePages.length} PAGES · {documentInfo.version || 'AI REVIEWED'}
           </span>
         </div>
 
@@ -278,11 +301,11 @@ export const DocumentReviewView: React.FC<DocumentReviewViewProps> = ({
               <span className="text-[11px] font-mono text-[#6F6D65] uppercase">Page:</span>
               <button
                 onClick={() => {
-                  const pages = deedPages.map((p) => p.pageNumber);
-                  const currIdx = pages.indexOf(currentPageNumber);
-                  if (currIdx > 0) setCurrentPageNumber(pages[currIdx - 1]);
+                  const pagesList = activePages.map((p) => p.pageNumber);
+                  const currIdx = pagesList.indexOf(currentPageNumber);
+                  if (currIdx > 0) setCurrentPageNumber(pagesList[currIdx - 1]);
                 }}
-                disabled={currentPageNumber === deedPages[0].pageNumber}
+                disabled={activePages.length === 0 || currentPageNumber === activePages[0].pageNumber}
                 className="p-1 rounded bg-[#EAE6DB] text-[#1C1C19] disabled:opacity-40 hover:bg-[#DDD9CE]"
                 title="Previous page"
               >
@@ -294,20 +317,20 @@ export const DocumentReviewView: React.FC<DocumentReviewViewProps> = ({
                 onChange={(e) => setCurrentPageNumber(Number(e.target.value))}
                 className="text-xs font-mono font-semibold bg-white border border-[#DDD9CE] rounded px-2 py-1 text-[#1C1C19]"
               >
-                {deedPages.map((p) => (
+                {activePages.map((p) => (
                   <option key={p.pageNumber} value={p.pageNumber}>
-                    Page {p.pageNumber} of 18 {p.pageNumber === 7 ? '(3 Core Traps)' : ''}
+                    Page {p.pageNumber} of {activePages.length} {p.lines.some((l) => l.isFlaggedFinding) ? '(! Flagged)' : ''}
                   </option>
                 ))}
               </select>
 
               <button
                 onClick={() => {
-                  const pages = deedPages.map((p) => p.pageNumber);
-                  const currIdx = pages.indexOf(currentPageNumber);
-                  if (currIdx < pages.length - 1) setCurrentPageNumber(pages[currIdx + 1]);
+                  const pagesList = activePages.map((p) => p.pageNumber);
+                  const currIdx = pagesList.indexOf(currentPageNumber);
+                  if (currIdx < pagesList.length - 1) setCurrentPageNumber(pagesList[currIdx + 1]);
                 }}
-                disabled={currentPageNumber === deedPages[deedPages.length - 1].pageNumber}
+                disabled={activePages.length === 0 || currentPageNumber === activePages[activePages.length - 1].pageNumber}
                 className="p-1 rounded bg-[#EAE6DB] text-[#1C1C19] disabled:opacity-40 hover:bg-[#DDD9CE]"
                 title="Next page"
               >
@@ -402,6 +425,8 @@ export const DocumentReviewView: React.FC<DocumentReviewViewProps> = ({
       {activeTab === 'plain' ? (
         <ClauseByClauseView
           findings={findings}
+          clauses={clauses}
+          language={language}
           onSelectFinding={onSelectFinding}
           onToggleBrief={onToggleBrief}
           onOpenAdvocateBrief={onOpenAdvocateBrief}
@@ -436,7 +461,7 @@ export const DocumentReviewView: React.FC<DocumentReviewViewProps> = ({
                       AI Scrutiny
                     </button>
                     <span className="bg-[#EAE6DB] px-2 py-0.5 rounded text-[#1C1C19] font-bold">
-                      PAGE {currentPage.pageNumber} OF 18
+                      PAGE {currentPage.pageNumber} OF {activePages.length}
                     </span>
                   </div>
                 </div>

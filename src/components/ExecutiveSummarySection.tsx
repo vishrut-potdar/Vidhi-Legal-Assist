@@ -22,6 +22,7 @@ import { Language } from '../types';
 
 interface ExecutiveSummarySectionProps {
   language: Language;
+  customSummaryData?: SummaryData;
   onOpenAdvocateBrief?: () => void;
   onOpenDocument?: () => void;
   onOpenPipelineViewer?: () => void;
@@ -245,20 +246,27 @@ const defaultSummaries: Record<Language, SummaryData> = {
 
 export const ExecutiveSummarySection: React.FC<ExecutiveSummarySectionProps> = ({
   language,
+  customSummaryData,
   onOpenAdvocateBrief,
   onOpenDocument,
   onOpenPipelineViewer,
 }) => {
-  const [summaryData, setSummaryData] = useState<SummaryData>(defaultSummaries[language]);
+  const [summaryData, setSummaryData] = useState<SummaryData>(
+    customSummaryData || defaultSummaries[language]
+  );
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isCopied, setIsCopied] = useState<boolean>(false);
   const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
 
-  // Sync with language changes
+  // Sync with customSummaryData or language changes
   useEffect(() => {
-    setSummaryData(defaultSummaries[language]);
-  }, [language]);
+    if (customSummaryData) {
+      setSummaryData(customSummaryData);
+    } else {
+      setSummaryData(defaultSummaries[language]);
+    }
+  }, [customSummaryData, language]);
 
   // Clean up speech on unmount
   useEffect(() => {

@@ -15,6 +15,7 @@ import { AIClauseModal } from './AIClauseModal';
 
 interface ClauseByClauseViewProps {
   findings: Finding[];
+  clauses?: FullClauseExplanation[];
   language?: Language;
   onSelectFinding?: (finding: Finding) => void;
   onToggleBrief: (findingId: string) => void;
@@ -23,6 +24,7 @@ interface ClauseByClauseViewProps {
 
 export const ClauseByClauseView: React.FC<ClauseByClauseViewProps> = ({
   findings,
+  clauses,
   language = 'EN',
   onSelectFinding,
   onToggleBrief,
@@ -38,10 +40,13 @@ export const ClauseByClauseView: React.FC<ClauseByClauseViewProps> = ({
     clauseTitle: string;
   } | null>(null);
   const [expandedClauses, setExpandedClauses] = useState<Record<number, boolean>>({
+    1: true,
+    2: true,
+    3: true,
     4: true,
-    5: true,
-    6: true,
   });
+
+  const activeClauses = clauses && clauses.length > 0 ? clauses : fullDocumentClauses;
 
   const categories = [
     'ALL',
@@ -60,7 +65,7 @@ export const ClauseByClauseView: React.FC<ClauseByClauseViewProps> = ({
     }));
   };
 
-  const filteredClauses = fullDocumentClauses.filter((clause) => {
+  const filteredClauses = activeClauses.filter((clause) => {
     const matchesSearch =
       clause.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       clause.plainExplanation.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -78,7 +83,8 @@ export const ClauseByClauseView: React.FC<ClauseByClauseViewProps> = ({
     return matchesSearch && matchesCategory && matchesRisk;
   });
 
-  const flaggedCount = fullDocumentClauses.filter((c) => c.isFlagged).length;
+  const flaggedCount = activeClauses.filter((c) => c.isFlagged).length;
+  const highRiskCount = activeClauses.filter((c) => c.riskLevel === 'HIGH').length;
 
   return (
     <div className="space-y-6">
@@ -90,14 +96,14 @@ export const ClauseByClauseView: React.FC<ClauseByClauseViewProps> = ({
               CLAUSE-BY-CLAUSE ENGINE
             </span>
             <span className="text-xs font-mono text-[#6F6D65]">
-              16 CLAUSES ANALYZED · 7 FLAGGED RISKS
+              {activeClauses.length} CLAUSES ANALYZED · {flaggedCount} FLAGGED RISKS
             </span>
           </div>
           <h2 className="font-serif text-xl sm:text-2xl font-semibold text-[#1C1C19]">
             Plain-Language Translation &amp; Obligation Mapping
           </h2>
           <p className="text-xs sm:text-sm text-[#6F6D65] max-w-3xl leading-relaxed">
-            Every legal clause from your 18-page Kalyani Nagar Sale Deed mapped side-by-side with its exact original text, practical citizen explanation, and party obligation duties.
+            Every legal clause from the reviewed document mapped side-by-side with its exact original text, practical citizen explanation, and party obligation duties.
           </p>
         </div>
 
@@ -134,7 +140,7 @@ export const ClauseByClauseView: React.FC<ClauseByClauseViewProps> = ({
                   : 'bg-white border border-[#DDD9CE] text-[#6F6D65] hover:text-[#1C1C19]'
               }`}
             >
-              All Clauses (16)
+              All Clauses ({activeClauses.length})
             </button>
             <button
               onClick={() => setSelectedRiskFilter('FLAGGED')}

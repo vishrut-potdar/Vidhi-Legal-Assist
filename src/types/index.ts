@@ -242,3 +242,14 @@ export interface DisputePathway {
   suitabilityForMatter: string;
 }
 
+export interface IngestedDocument {
+  id: string;
+  documentInfo: DocumentInfo;
+  pages: any[];
+  findings: Finding[];
+  fullClauses: FullClauseExplanation[];
+  missingDocs: MissingDocument[];
+  summaryData?: any;
+  uploadedAt: string;
+}
+

@@ -10,6 +10,7 @@ import {
   askLegalQuestionWithAI,
   analyzeClauseWithAI,
   handleChatWithAI,
+  analyzeUploadedDocument,
 } from './src/server/aiPipeline';
 
 dotenv.config();
@@ -21,7 +22,8 @@ async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
 
-  app.use(express.json({ limit: '10mb' }));
+  app.use(express.json({ limit: '50mb' }));
+  app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
   // Pipeline API: Process document according to architecture diagram
   app.post('/api/pipeline/process', async (req, res) => {
@@ -94,6 +96,24 @@ async function startServer() {
     } catch (err: any) {
       console.error('Chat endpoint error:', err);
       res.status(500).json({ error: 'Failed to process chat message' });
+    }
+  });
+
+  // Real AI Document Ingestion & Statutory Scrutiny Endpoint
+  app.post('/api/document/analyze', async (req, res) => {
+    try {
+      const { fileBase64, mimeType, fileName, rawText, language } = req.body;
+      const analyzedDoc = await analyzeUploadedDocument({
+        fileBase64,
+        mimeType,
+        fileName,
+        rawText,
+        language: language || 'EN',
+      });
+      res.json(analyzedDoc);
+    } catch (err: any) {
+      console.error('Document analysis error:', err);
+      res.status(500).json({ error: 'Failed to analyze document', details: err.message });
     }
   });
 
