@@ -24,11 +24,11 @@ import {
   languageInstruction,
   parseModelJson,
   readingLevelInstruction,
-} from './aiShared';
-import { TTLCache, hashKey, isCacheableBoilerplate, normalizeClauseText } from './cache';
-import { ClauseSegment, groupIntoChunks, mapWithConcurrency, splitIntoClauses } from './chunking';
-import { maskPII } from './pii';
-import { UNTRUSTED_CONTENT_RULES, sanitizeUntrustedText, wrapUntrusted } from './security';
+} from './aiShared.js';
+import { TTLCache, hashKey, isCacheableBoilerplate, normalizeClauseText } from './cache.js';
+import { ClauseSegment, groupIntoChunks, mapWithConcurrency, splitIntoClauses } from './chunking.js';
+import { maskPII } from './pii.js';
+import { UNTRUSTED_CONTENT_RULES, sanitizeUntrustedText, wrapUntrusted } from './security.js';
 
 /* ------------------------------------------------------------------ */
 /* Types                                                               */
