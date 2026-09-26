@@ -57,7 +57,7 @@ export const GeminiChatbot: React.FC<GeminiChatbotProps> = ({
 
   const [input, setInput] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [modelRole, setModelRole] = useState<'general' | 'deep' | 'fast'>('general');
+  const [modelRole, setModelRole] = useState<'general' | 'fast'>('general');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
   const [activeLang, setActiveLang] = useState<Language>(language);
@@ -175,7 +175,7 @@ export const GeminiChatbot: React.FC<GeminiChatbotProps> = ({
                 role: 'assistant',
                 content: '',
                 timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                modelUsed: modelRole === 'deep' ? 'gemini-3.1-pro-preview' : modelRole === 'fast' ? 'gemini-3.1-flash-lite' : 'gemini-3.8-flash',
+                modelUsed: modelRole === 'fast' ? 'gemini-3.1-flash-lite' : 'gemini-3.8-flash',
               },
             ]);
             setStreamingId(botId);
@@ -257,11 +257,7 @@ export const GeminiChatbot: React.FC<GeminiChatbotProps> = ({
                   Vidhi AI Legal Counsel
                 </span>
                 <span className="text-[10px] font-mono uppercase font-semibold px-1.5 py-0.5 rounded bg-[#F0EBE0] text-[#73716A] border border-[#DDD9CE]">
-                  {modelRole === 'deep'
-                    ? 'Pro Reasoning'
-                    : modelRole === 'fast'
-                    ? 'Flash-Lite'
-                    : 'Gemini 3.8 Flash'}
+                  {modelRole === 'fast' ? 'Flash-Lite' : 'Gemini 3.8 Flash'}
                 </span>
               </div>
               <p className="text-[11px] text-[#8C887B] font-mono leading-none mt-0.5">
@@ -280,7 +276,6 @@ export const GeminiChatbot: React.FC<GeminiChatbotProps> = ({
               aria-label="AI model"
             >
               <option value="general">Gemini 3.8 Flash (General)</option>
-              <option value="deep">Gemini 3.1 Pro (Deep Scrutiny)</option>
               <option value="fast">Gemini 3.1 Flash-Lite (Fast)</option>
             </select>
 
@@ -448,7 +443,7 @@ export const GeminiChatbot: React.FC<GeminiChatbotProps> = ({
               <div className="bg-white border border-[#DDD9CE] rounded-lg rounded-tl-none p-3 shadow-2xs flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-[#C38A2E] animate-ping" />
                 <span className="text-xs font-mono text-[#6F6D65]">
-                  Analyzing statutory precedents with {modelRole === 'deep' ? 'Gemini 3.1 Pro' : modelRole === 'fast' ? 'Gemini 3.1 Flash-Lite' : 'Gemini 3.8 Flash'}...
+                  Analyzing statutory precedents with {modelRole === 'fast' ? 'Gemini 3.1 Flash-Lite' : 'Gemini 3.8 Flash'}...
                 </span>
               </div>
             </div>
