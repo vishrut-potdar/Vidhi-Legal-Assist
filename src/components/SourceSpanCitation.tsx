@@ -28,7 +28,7 @@ export const SourceSpanCitation: React.FC<SourceSpanCitationProps> = ({
   return (
     <div className={`text-xs font-mono inline-flex flex-col ${className}`}>
       <div className="flex items-center gap-1.5 flex-wrap">
-        <button
+        <button aria-expanded={isExpanded}
           type="button"
           onClick={() => {
             setIsExpanded(!isExpanded);

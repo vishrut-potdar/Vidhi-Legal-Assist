@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from 'recharts';
 import { ShieldAlert, AlertTriangle, CheckCircle2, ArrowRight, Info, Filter } from 'lucide-react';
 import { Language, DocumentInfo, Finding } from '../types';
+import { activateOnKey } from '../utils/a11y';
 
 interface RiskDistributionCardProps {
   documentInfo: DocumentInfo;
@@ -130,7 +131,11 @@ export const RiskDistributionCard: React.FC<RiskDistributionCardProps> = ({
 
       {/* Donut Chart & Center Stats */}
       <div className="relative flex flex-col sm:flex-row items-center justify-center gap-4 py-2">
-        <div className="relative w-44 h-44 shrink-0">
+        <div
+          className="relative w-44 h-44 shrink-0"
+          role="img"
+          aria-label={`${titleText}: ${data.map((d) => `${d.name} ${d.value}`).join(", ")} (${totalCount} total)`}
+        >
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
               <Tooltip
@@ -230,7 +235,7 @@ export const RiskDistributionCard: React.FC<RiskDistributionCardProps> = ({
             const isHovered = activeIndex === idx;
 
             return (
-              <div
+              <div role="button" tabIndex={0} onKeyDown={activateOnKey}
                 key={item.key}
                 onMouseEnter={() => setActiveIndex(idx)}
                 onMouseLeave={() => setActiveIndex(null)}

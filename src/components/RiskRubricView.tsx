@@ -18,6 +18,7 @@ import {
 import { redFlagRubricList } from '../data/legalIntelligenceData';
 import { RedFlagRubricItem, Severity, Language } from '../types';
 import { DisclaimerBanner } from './DisclaimerBanner';
+import { activateOnKey } from '../utils/a11y';
 
 interface RiskRubricViewProps {
   language?: Language;
@@ -122,7 +123,7 @@ export const RiskRubricView: React.FC<RiskRubricViewProps> = ({
 
         {/* 3 Metric Summary Badges */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
-          <div
+          <div role="button" tabIndex={0} onKeyDown={activateOnKey} aria-pressed={selectedStatus === 'DETECTED'}
             onClick={() => setSelectedStatus('DETECTED')}
             className={`p-3.5 rounded-lg border cursor-pointer transition-all ${
               selectedStatus === 'DETECTED'
@@ -144,7 +145,7 @@ export const RiskRubricView: React.FC<RiskRubricViewProps> = ({
             </p>
           </div>
 
-          <div
+          <div role="button" tabIndex={0} onKeyDown={activateOnKey} aria-pressed={selectedStatus === 'WATCHLIST'}
             onClick={() => setSelectedStatus('WATCHLIST')}
             className={`p-3.5 rounded-lg border cursor-pointer transition-all ${
               selectedStatus === 'WATCHLIST'
@@ -166,7 +167,7 @@ export const RiskRubricView: React.FC<RiskRubricViewProps> = ({
             </p>
           </div>
 
-          <div
+          <div role="button" tabIndex={0} onKeyDown={activateOnKey} aria-pressed={selectedStatus === 'SAFE'}
             onClick={() => setSelectedStatus('SAFE')}
             className={`p-3.5 rounded-lg border cursor-pointer transition-all ${
               selectedStatus === 'SAFE'
@@ -195,7 +196,7 @@ export const RiskRubricView: React.FC<RiskRubricViewProps> = ({
         <div className="flex flex-col sm:flex-row gap-3">
           <div className="relative flex-1">
             <Search className="w-4 h-4 text-[#8C887B] absolute left-3 top-2.5" />
-            <input
+            <input aria-label="Search rubric"
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -206,7 +207,7 @@ export const RiskRubricView: React.FC<RiskRubricViewProps> = ({
 
           <div className="flex items-center gap-1.5 shrink-0">
             <span className="text-xs text-[#8C887B] font-mono">Status:</span>
-            <select
+            <select aria-label="Filter rubric by status"
               value={selectedStatus}
               onChange={(e) => setSelectedStatus(e.target.value as any)}
               className="bg-white border border-[#C9C4B7] text-[#1C1C19] text-xs rounded px-2.5 py-1.5 font-medium"
@@ -225,7 +226,7 @@ export const RiskRubricView: React.FC<RiskRubricViewProps> = ({
             <Filter className="w-3 h-3" /> Area:
           </span>
           {categories.map((cat) => (
-            <button
+            <button aria-pressed={selectedCategory === cat}
               key={cat}
               onClick={() => setSelectedCategory(cat)}
               className={`px-2.5 py-1 rounded text-xs transition-colors shrink-0 ${
@@ -260,7 +261,7 @@ export const RiskRubricView: React.FC<RiskRubricViewProps> = ({
               }`}
             >
               {/* Header Accordion */}
-              <div
+              <div role="button" tabIndex={0} onKeyDown={activateOnKey} aria-expanded={isExpanded}
                 onClick={() => toggleExpand(item.id)}
                 className="p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-3 cursor-pointer bg-gradient-to-r from-[#FAF8F5] to-[#FCFBF7] hover:bg-[#F5F2EA] transition-colors"
               >

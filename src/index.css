@@ -42,6 +42,30 @@
   }
 }
 
+/* Visible keyboard focus everywhere (mouse clicks stay clean). */
+:focus-visible {
+  outline: 2px solid #C38A2E;
+  outline-offset: 2px;
+}
+
+/* Respect users who ask for less motion (also saves battery on low-end phones). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Devanagari text needs extra line height to stay readable. */
+:lang(hi),
+:lang(mr) {
+  line-height: 1.7;
+}
+
 .font-legal {
   font-family: var(--font-serif);
 }

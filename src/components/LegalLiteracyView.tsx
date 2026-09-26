@@ -71,7 +71,7 @@ export const LegalLiteracyView: React.FC<LegalLiteracyViewProps> = ({
           {/* Topic Switcher Tabs (Section 20) */}
           <div className="inline-flex rounded-md p-1 bg-[#F3F0E8] border border-[#DDD9CE] text-xs font-medium self-start md:self-auto">
             {topics.map((topic) => (
-              <button
+              <button aria-pressed={activeTopic === topic}
                 key={topic}
                 onClick={() => setActiveTopic(topic)}
                 className={`px-3 py-1.5 rounded transition-all ${

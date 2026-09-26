@@ -17,8 +17,17 @@
  * -> Questions for advocate/lawyer to ask
  */
 
-import { GoogleGenAI, Type } from '@google/genai';
+import { GoogleGenAI } from '@google/genai';
 import { glossaryItems } from '../data/mockData';
+import { applyMaskingLayer1, applyMaskingLayer2, maskPII, MaskedEntity } from './pii';
+import { UNTRUSTED_CONTENT_RULES, sanitizeUntrustedText, wrapUntrusted } from './security';
+import { ReadingLevel, getGeminiClient, hasGeminiKey, readingLevelInstruction } from './aiShared';
+import { TTLCache, hashKey, isCacheableBoilerplate, normalizeClauseText } from './cache';
+import { analyzeDocumentStreaming } from './documentAnalysis';
+import type { AnalyzedDocumentPayload, DocumentAnalysisInput } from './documentAnalysis';
+
+export { applyMaskingLayer1, applyMaskingLayer2 };
+export type { MaskedEntity, AnalyzedDocumentPayload, DocumentAnalysisInput };
 
 // Types for pipeline audit trace
 export interface PipelineTraceStep {
@@ -28,13 +37,6 @@ export interface PipelineTraceStep {
   timestamp: string;
   details: string;
   payload?: any;
-}
-
-export interface MaskedEntity {
-  type: 'AADHAAR' | 'PAN' | 'PHONE' | 'EMAIL' | 'BANK_ACCOUNT' | 'IFSC';
-  originalToken: string;
-  maskedToken: string;
-  position: { start: number; end: number };
 }
 
 export interface PipelineExecutionResult {
@@ -95,116 +97,6 @@ dedicatedLegalWordLibrary['possession'] = {
   definition: 'Physical control and occupation of immovable property, distinct from mere ownership on paper.',
   plainExample: 'Handing over the physical keys upon registration under Section 55 of Transfer of Property Act.',
 };
-
-/**
- * Step 3: Masking Layer 1
- * Identifies Personal Info through Pre-Defined Layouts (Aadhaar, PAN)
- */
-export function applyMaskingLayer1(text: string): {
-  maskedText: string;
-  entities: MaskedEntity[];
-} {
-  const entities: MaskedEntity[] = [];
-  let maskedText = text;
-
-  // Pre-defined Aadhaar format (12 digits, optional spaces/hyphens)
-  const aadhaarRegex = /\b[2-9]\d{3}[\s\-]?\d{4}[\s\-]?\d{4}\b/g;
-  maskedText = maskedText.replace(aadhaarRegex, (match, offset) => {
-    const masked = '[REDACTED_AADHAAR_' + match.slice(-4) + ']';
-    entities.push({
-      type: 'AADHAAR',
-      originalToken: match,
-      maskedToken: masked,
-      position: { start: offset, end: offset + match.length },
-    });
-    return masked;
-  });
-
-  // Pre-defined PAN format: 5 letters, 4 digits, 1 letter (e.g., ABCDE1234F)
-  const panRegex = /\b[A-Z]{5}[0-9]{4}[A-Z]\b/g;
-  maskedText = maskedText.replace(panRegex, (match, offset) => {
-    const masked = '[REDACTED_PAN_' + match.slice(-2) + ']';
-    entities.push({
-      type: 'PAN',
-      originalToken: match,
-      maskedToken: masked,
-      position: { start: offset, end: offset + match.length },
-    });
-    return masked;
-  });
-
-  return { maskedText, entities };
-}
-
-/**
- * Step 4: Second Layer of Masking for a pre-caution check
- * Checks phone numbers, emails, bank accounts, IFSC codes
- */
-export function applyMaskingLayer2(text: string): {
-  maskedText: string;
-  entities: MaskedEntity[];
-} {
-  const entities: MaskedEntity[] = [];
-  let maskedText = text;
-
-  // Phone numbers (Indian mobile formats)
-  const phoneRegex = /\b(?:\+91[\-\s]?)?[6-9]\d{9}\b/g;
-  maskedText = maskedText.replace(phoneRegex, (match, offset) => {
-    const masked = '[REDACTED_PHONE_' + match.slice(-4) + ']';
-    entities.push({
-      type: 'PHONE',
-      originalToken: match,
-      maskedToken: masked,
-      position: { start: offset, end: offset + match.length },
-    });
-    return masked;
-  });
-
-  // Email addresses
-  const emailRegex = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g;
-  maskedText = maskedText.replace(emailRegex, (match, offset) => {
-    const masked = '[REDACTED_EMAIL]';
-    entities.push({
-      type: 'EMAIL',
-      originalToken: match,
-      maskedToken: masked,
-      position: { start: offset, end: offset + match.length },
-    });
-    return masked;
-  });
-
-  // Bank Account Numbers (9 to 18 digits)
-  const bankRegex = /\b\d{9,18}\b/g;
-  maskedText = maskedText.replace(bankRegex, (match, offset) => {
-    // Avoid replacing small standalone years like 2026 or clause references
-    if (match.length >= 9) {
-      const masked = '[REDACTED_BANK_A/C_' + match.slice(-4) + ']';
-      entities.push({
-        type: 'BANK_ACCOUNT',
-        originalToken: match,
-        maskedToken: masked,
-        position: { start: offset, end: offset + match.length },
-      });
-      return masked;
-    }
-    return match;
-  });
-
-  // IFSC Codes: 4 alphabetic chars, '0', 6 alphanumeric chars
-  const ifscRegex = /\b[A-Z]{4}0[A-Z0-9]{6}\b/g;
-  maskedText = maskedText.replace(ifscRegex, (match, offset) => {
-    const masked = '[REDACTED_IFSC_' + match.slice(0, 4) + ']';
-    entities.push({
-      type: 'IFSC',
-      originalToken: match,
-      maskedToken: masked,
-      position: { start: offset, end: offset + match.length },
-    });
-    return masked;
-  });
-
-  return { maskedText, entities };
-}
 
 /**
  * Step 5: Context Bifurcation
@@ -383,14 +275,17 @@ Format your response strictly as JSON with this schema:
     }
   ],
   "advocateQuestionsSummary": ["Question 1", "Question 2"]
-}`;
+}
 
+${UNTRUSTED_CONTENT_RULES}`;
+
+      const { wrapped } = wrapUntrusted('DOCUMENT', sanitizeUntrustedText(layer2.maskedText.slice(0, 4000)).text);
       const response = await ai.models.generateContent({
         model: 'gemini-3.8-flash',
         contents: [
           {
             role: 'user',
-            parts: [{ text: `Analyze this masked document:\n\n${layer2.maskedText.slice(0, 4000)}` }],
+            parts: [{ text: `Analyze this masked document:\n\n${wrapped}` }],
           },
         ],
         config: {
@@ -536,7 +431,8 @@ export interface AIExecutiveSummary {
 
 export async function generateAIExecutiveSummary(
   documentText?: string,
-  language: 'EN' | 'HI' | 'MR' = 'EN'
+  language: 'EN' | 'HI' | 'MR' = 'EN',
+  readingLevel: ReadingLevel = 'standard'
 ): Promise<AIExecutiveSummary> {
   const textToProcess =
     documentText ||
@@ -564,9 +460,12 @@ Analyze the following PII-redacted Sale Deed draft for a citizen purchasing a fl
 Produce a comprehensive, crystal-clear, high-level Executive Summary in plain language so that a citizen with no legal training can understand every vital commitment and risk before signing.
 
 Language requirement: ${language === 'HI' ? 'Hindi (हिंदी)' : language === 'MR' ? 'Marathi (मराठी)' : 'English'}.
+${readingLevelInstruction(readingLevel)}
+
+${UNTRUSTED_CONTENT_RULES}
 
 Redacted Document Text:
-${layer2.maskedText}
+${wrapUntrusted('DOCUMENT', sanitizeUntrustedText(layer2.maskedText).text).wrapped}
 
 Respond ONLY with valid JSON matching this schema:
 {
@@ -846,7 +745,8 @@ export interface AIQAResponse {
 export async function askLegalQuestionWithAI(
   query: string,
   documentContext?: string,
-  language: 'EN' | 'HI' | 'MR' = 'EN'
+  language: 'EN' | 'HI' | 'MR' = 'EN',
+  readingLevel: ReadingLevel = 'standard'
 ): Promise<AIQAResponse> {
   const layer1 = applyMaskingLayer1(query);
   const layer2 = applyMaskingLayer2(layer1.maskedText);
@@ -884,6 +784,9 @@ STRICT GROUNDING DIRECTIVE:
 1. If the question pertains to facts, terms, numbers, or rights explicitly mentioned in the document (price ₹86L, advance ₹17.2L, balance ₹68.8L, SBI loan, parking P-14, indemnity 12 months, arbitration Clause 14, keys handover), answer accurately in plain language. Always cite the clause and page number if applicable.
 2. If the user asks for private personal data (PAN, Aadhaar, bank account numbers, phone numbers) or items completely unmentioned (maintenance bills amount, society elections, criminal antecedents), DO NOT invent answers. Set isGroundedInDocument to false, refuse to speculate, and explain that the deed does not contain this information.
 3. Language of response: ${language === 'HI' ? 'Hindi (हिंदी)' : language === 'MR' ? 'Marathi (मराठी)' : 'English'}.
+4. ${readingLevelInstruction(readingLevel)}
+
+${UNTRUSTED_CONTENT_RULES}
 
 Respond strictly in JSON matching this schema:
 {
@@ -905,7 +808,9 @@ Respond strictly in JSON matching this schema:
             role: 'user',
             parts: [
               {
-                text: `Document Context:\n${defaultContext}\n\nCitizen Query:\n${layer2.maskedText}`,
+                text: `Document Context:\n${
+                  wrapUntrusted('DOCUMENT', sanitizeUntrustedText(maskPII(defaultContext).maskedText).text).wrapped
+                }\n\nCitizen Query:\n${layer2.maskedText}`,
               },
             ],
           },
@@ -986,6 +891,8 @@ export interface AIClauseAnalysis {
   modelUsed: string;
 }
 
+const clauseDeepDiveCache = new TTLCache<AIClauseAnalysis>(300, 6 * 60 * 60 * 1000);
+
 /**
  * AI Deep Clause Analysis
  * Scrutinizes any clause text using Gemini 3.8 Flash
@@ -994,10 +901,20 @@ export async function analyzeClauseWithAI(
   clauseNumber: number,
   pageNumber: number = 7,
   originalLegalText: string,
-  language: 'EN' | 'HI' | 'MR' = 'EN'
+  language: 'EN' | 'HI' | 'MR' = 'EN',
+  readingLevel: ReadingLevel = 'standard'
 ): Promise<AIClauseAnalysis> {
   const layer1 = applyMaskingLayer1(originalLegalText);
   const layer2 = applyMaskingLayer2(layer1.maskedText);
+  const sanitizedClause = sanitizeUntrustedText(layer2.maskedText).text;
+
+  // Boilerplate clauses (no amounts, dates, names or identifiers) are served from cache.
+  const cacheable = hasGeminiKey() && isCacheableBoilerplate(sanitizedClause);
+  const cacheKey = hashKey('clause-deep', language, readingLevel, normalizeClauseText(sanitizedClause));
+  if (cacheable) {
+    const cached = clauseDeepDiveCache.get(cacheKey);
+    if (cached) return { ...cached, clauseNumber, pageNumber, modelUsed: `${cached.modelUsed} · cached` };
+  }
 
   const apiKey = process.env.GEMINI_API_KEY;
 
@@ -1017,6 +934,9 @@ Examine this clause (Clause ${clauseNumber}, Page ${pageNumber}) from a flat sal
 Identify why this clause is dangerous for the buyer, cite Indian property law, and generate a balanced counter-clause amendment.
 
 Language requirement: ${language === 'HI' ? 'Hindi (हिंदी)' : language === 'MR' ? 'Marathi (मराठी)' : 'English'}.
+${readingLevelInstruction(readingLevel)}
+
+${UNTRUSTED_CONTENT_RULES}
 
 Respond strictly in JSON matching this schema:
 {
@@ -1036,7 +956,7 @@ Respond strictly in JSON matching this schema:
         contents: [
           {
             role: 'user',
-            parts: [{ text: `Legal Clause Text to Analyze:\n${layer2.maskedText}` }],
+            parts: [{ text: `Legal Clause Text to Analyze:\n${wrapUntrusted('CLAUSE', sanitizedClause).wrapped}` }],
           },
         ],
         config: {
@@ -1048,7 +968,7 @@ Respond strictly in JSON matching this schema:
 
       const parsed = JSON.parse(response.text || '{}');
       if (parsed.plainExplanation && parsed.advocateCounterClause) {
-        return {
+        const result: AIClauseAnalysis = {
           clauseNumber,
           pageNumber,
           title: parsed.title || `Clause ${clauseNumber} Legal Analysis`,
@@ -1060,6 +980,8 @@ Respond strictly in JSON matching this schema:
           advocateQuestion: parsed.advocateQuestion || 'Can we amend this clause to adhere to statutory fair dealing?',
           modelUsed: 'gemini-3.8-flash (Server-Side Verified)',
         };
+        if (cacheable) clauseDeepDiveCache.set(cacheKey, result);
+        return result;
       }
     } catch (err) {
       console.warn('Gemini Clause Analysis API error, using high-fidelity fallback:', err);
@@ -1105,16 +1027,16 @@ export interface AIChatResponse {
   timestamp: string;
 }
 
-/**
- * Multi-turn Gemini Chatbot Engine
- * Supports gemini-3.8-flash, gemini-3.1-pro-preview, and gemini-3.1-flash-lite
- */
-export async function handleChatWithAI(
+const CHAT_MAX_MESSAGES = 20;
+const CHAT_MAX_MESSAGE_CHARS = 4000;
+
+function buildChatRequest(
   messages: ChatMessage[],
-  documentContext?: string,
-  language: 'EN' | 'HI' | 'MR' = 'EN',
-  modelRole: 'general' | 'deep' | 'fast' = 'general'
-): Promise<AIChatResponse> {
+  documentContext: string | undefined,
+  language: 'EN' | 'HI' | 'MR',
+  modelRole: 'general' | 'deep' | 'fast',
+  readingLevel: ReadingLevel
+) {
   const selectedModel =
     modelRole === 'deep'
       ? 'gemini-3.1-pro-preview'
@@ -1122,29 +1044,28 @@ export async function handleChatWithAI(
       ? 'gemini-3.1-flash-lite'
       : 'gemini-3.8-flash';
 
-  const apiKey = process.env.GEMINI_API_KEY;
-
-  // Build clean sanitized history
-  const sanitizedMessages = messages.map((m) => {
-    // Redact sensitive PII from user text
-    let text = m.content;
-    if (m.role === 'user') {
-      const l1 = applyMaskingLayer1(text);
-      const l2 = applyMaskingLayer2(l1.maskedText);
-      text = l2.maskedText;
-    }
-    return {
+  // Keep only recent turns and mask PII in everything sent to the model.
+  const contents = messages
+    .filter((m) => m && typeof m.content === 'string' && m.content.trim())
+    .slice(-CHAT_MAX_MESSAGES)
+    .map((m) => ({
       role: m.role === 'user' ? 'user' : 'model',
-      content: text,
-    };
-  });
+      parts: [{ text: maskPII(m.content.slice(0, CHAT_MAX_MESSAGE_CHARS)).maskedText }],
+    }));
 
   const languagePrompt =
     language === 'HI'
-      ? 'Respond primarily in clear, respectful Hindi (हिंदी) with standard legal terms clearly transliterated.'
+      ? 'Respond primarily in clear, respectful Hindi (हिंदी). After each key legal term, give the English term in brackets so the citizen can match it to the English document.'
       : language === 'MR'
-      ? 'Respond primarily in clear, respectful Marathi (मराठी) with Maharashtra property conveyance terminology.'
+      ? 'Respond primarily in clear, respectful Marathi (मराठी). After each key legal term, give the English term in brackets.'
       : 'Respond in clear, accessible plain English with precision.';
+
+  const context = sanitizeUntrustedText(
+    maskPII(
+      documentContext ||
+        '18-page Sale Deed draft for Flat 402, 4th Floor, Gulmohar Enclave CHSL, Kalyani Nagar, Pune 411006. Vendor: Shri Rajesh S. Verma. Purchaser: Rohan Sharma. Agreed consideration: ₹86 Lakhs. Key issues: Outstanding SBI housing loan mortgage without pre-registration release, unspecific possession handover timeline, and 12-month defect liability limitation.'
+    ).maskedText.slice(0, 8000)
+  ).text;
 
   const systemInstruction = `You are Vidhi Legal Assistant, a citizen-first AI advisor and document intelligence companion specializing in Indian property conveyance, conveyancing law, and legal literacy.
 
@@ -1155,50 +1076,17 @@ Core Responsibilities:
 4. Uphold the fundamental legal boundary: You provide legal information, education, and document scrutiny, NOT formal legal representation or binding advocate advice. Always remind the citizen to verify amendments with their appointed property advocate.
 5. Never use emojis. Maintain an objective, calm, professional, and reassuring tone.
 6. ${languagePrompt}
+7. ${readingLevelInstruction(readingLevel)}
+
+${UNTRUSTED_CONTENT_RULES}
 
 Active Document Context (if relevant to the citizen's query):
-${documentContext || '18-page Sale Deed draft for Flat 402, 4th Floor, Gulmohar Enclave CHSL, Kalyani Nagar, Pune 411006. Vendor: Shri Rajesh S. Verma. Purchaser: Rohan Sharma. Agreed consideration: ₹86 Lakhs. Key issues: Outstanding SBI housing loan mortgage without pre-registration release, unspecific possession handover timeline, and 12-month defect liability limitation.'}`;
+${wrapUntrusted('DOCUMENT_CONTEXT', context).wrapped}`;
 
-  if (apiKey && apiKey !== 'MY_GEMINI_API_KEY') {
-    try {
-      const ai = new GoogleGenAI({
-        apiKey,
-        httpOptions: {
-          headers: {
-            'User-Agent': 'aistudio-build',
-          },
-        },
-      });
+  return { selectedModel, contents, systemInstruction };
+}
 
-      // Construct contents array for multi-turn chat
-      const contents = sanitizedMessages.map((msg) => ({
-        role: msg.role === 'user' ? 'user' : 'model',
-        parts: [{ text: msg.content }],
-      }));
-
-      const response = await ai.models.generateContent({
-        model: selectedModel,
-        contents,
-        config: {
-          systemInstruction,
-          temperature: 0.6,
-        },
-      });
-
-      const reply = response.text;
-      if (reply && reply.trim().length > 0) {
-        return {
-          reply: reply.trim(),
-          modelUsed: selectedModel,
-          timestamp: new Date().toISOString(),
-        };
-      }
-    } catch (err) {
-      console.warn(`Gemini Chat (${selectedModel}) API call failed, falling back to legal rules engine:`, err);
-    }
-  }
-
-  // Contextual fallback response generator
+function chatFallbackReply(messages: ChatMessage[], language: 'EN' | 'HI' | 'MR'): string {
   const lastUserMessage = [...messages].reverse().find((m) => m.role === 'user')?.content.toLowerCase() || '';
   let fallbackReply = '';
 
@@ -1225,631 +1113,90 @@ ${documentContext || '18-page Sale Deed draft for Flat 402, 4th Floor, Gulmohar 
     fallbackReply = `[अनुवाद - मराठी]: ${fallbackReply}`;
   }
 
+  return fallbackReply;
+}
+
+/**
+ * Multi-turn Gemini Chatbot Engine
+ * Supports gemini-3.8-flash, gemini-3.1-pro-preview, and gemini-3.1-flash-lite
+ */
+export async function handleChatWithAI(
+  messages: ChatMessage[],
+  documentContext?: string,
+  language: 'EN' | 'HI' | 'MR' = 'EN',
+  modelRole: 'general' | 'deep' | 'fast' = 'general',
+  readingLevel: ReadingLevel = 'standard'
+): Promise<AIChatResponse> {
+  const { selectedModel, contents, systemInstruction } = buildChatRequest(messages, documentContext, language, modelRole, readingLevel);
+
+  if (hasGeminiKey()) {
+    try {
+      const response = await getGeminiClient().models.generateContent({
+        model: selectedModel,
+        contents,
+        config: { systemInstruction, temperature: 0.6 },
+      });
+      const reply = response.text;
+      if (reply && reply.trim().length > 0) {
+        return { reply: reply.trim(), modelUsed: selectedModel, timestamp: new Date().toISOString() };
+      }
+    } catch (err: any) {
+      console.warn(`Gemini Chat (${selectedModel}) API call failed, falling back to legal rules engine:`, err?.message || err);
+    }
+  }
+
   return {
-    reply: fallbackReply,
+    reply: chatFallbackReply(messages, language),
     modelUsed: `${selectedModel} (Local Legal Rules Fallback)`,
     timestamp: new Date().toISOString(),
   };
 }
 
-export interface DocumentAnalysisInput {
-  fileBase64?: string;
-  mimeType?: string;
-  fileName?: string;
-  rawText?: string;
-  language?: 'EN' | 'HI' | 'MR';
-}
-
-export interface AnalyzedDocumentPayload {
-  id: string;
-  documentInfo: {
-    id: string;
-    title: string;
-    property: string;
-    city: string;
-    totalConsideration: string;
-    reviewedTimeAgo: string;
-    pageCount: number;
-    version: string;
-    riskScore: number;
-    riskVerdict: string;
-    highCount: number;
-    mediumCount: number;
-    lowCount: number;
-  };
-  summaryData: {
-    headline: string;
-    propertyTitle: string;
-    transactionType: string;
-    totalConsideration: string;
-    parties: {
-      vendor: string;
-      purchaser: string;
-    };
-    plainSummaryParagraphs: string[];
-    keyCovenants: Array<{
-      category: string;
-      status: 'NORMAL' | 'CAUTION' | 'ATTENTION';
-      summary: string;
-    }>;
-    criticalRisksIdentified: Array<{
-      clause: string;
-      concern: string;
-      plainMeaning: string;
-      suggestedAdvocateFix: string;
-    }>;
-    recommendedNextSteps: string[];
-    generatedAt: string;
-    modelUsed: string;
-    piiRedactedCount: number;
-  };
-  pages: Array<{
-    pageNumber: number;
-    headerTitle: string;
-    stampDutyNote?: string;
-    lines: Array<{
-      lineNumber: number;
-      clauseNumber?: number;
-      text: string;
-      isFlaggedFinding?: boolean;
-      findingId?: string;
-      findingSeverity?: 'HIGH' | 'MEDIUM' | 'LOW';
-      findingTitle?: string;
-    }>;
-  }>;
-  findings: Array<{
-    id: string;
-    clauseNumber: number;
-    pageNumber: number;
-    severity: 'HIGH' | 'MEDIUM' | 'LOW';
-    theme: string;
-    themeScorePercent: number;
-    shortTitle: string;
-    shortTitleHindi?: string;
-    shortTitleMarathi?: string;
-    plainHeadline: string;
-    plainHeadlineHindi?: string;
-    plainHeadlineMarathi?: string;
-    sourceQuote: string;
-    plainLanguageExplanation: string;
-    plainLanguageExplanationHindi?: string;
-    plainLanguageExplanationMarathi?: string;
-    practicalConsequences: string[];
-    advocateQuestion: string;
-    advocateWhy: string;
-    inAdvocateBrief: boolean;
-    audioScriptHindi?: string;
-    audioScriptEnglish?: string;
-    audioScriptMarathi?: string;
-    relatedModuleId: string;
-  }>;
-  fullClauses: Array<{
-    clauseNumber: number;
-    pageNumber: number;
-    title: string;
-    category: 'Parties & Title' | 'Financial & Consideration' | 'Possession & Handover' | 'Taxes & Outgoings' | 'Warranties & Indemnity' | 'Dispute Resolution & General';
-    originalLegalText: string;
-    plainExplanation: string;
-    buyerObligation: string;
-    sellerObligation: string;
-    riskLevel: 'HIGH' | 'MEDIUM' | 'LOW' | 'STANDARD';
-    riskReason?: string;
-    isFlagged: boolean;
-  }>;
-  missingDocuments: Array<{
-    id: string;
-    title: string;
-    importance: 'Critical' | 'Recommended';
-    reason: string;
-    uploaded: boolean;
-  }>;
-  extractedTextPreview?: string;
-}
-
 /**
- * Real AI Document Ingestion & Statutory Scrutiny Engine
- * Analyzes uploaded PDF or text contracts using Gemini 3.8 Flash
+ * Streaming variant: calls onDelta with text fragments as Gemini produces them.
+ * Falls back to the rule engine (sent as a single fragment) when Gemini is unavailable.
  */
-export async function analyzeUploadedDocument(
-  input: DocumentAnalysisInput
-): Promise<AnalyzedDocumentPayload> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  const docId = `doc-${Date.now()}`;
-  const language = input.language || 'EN';
-  const fileName = input.fileName || 'Uploaded Legal Document';
+export async function streamChatWithAI(
+  messages: ChatMessage[],
+  documentContext: string | undefined,
+  language: 'EN' | 'HI' | 'MR',
+  modelRole: 'general' | 'deep' | 'fast',
+  readingLevel: ReadingLevel,
+  onDelta: (text: string) => void
+): Promise<{ modelUsed: string; offline: boolean }> {
+  const { selectedModel, contents, systemInstruction } = buildChatRequest(messages, documentContext, language, modelRole, readingLevel);
 
-  const systemPrompt = `You are Vidhi Legal Engine, a senior Indian property conveyancing expert, civil contract analyst, and legal literacy AI.
-You evaluate legal deeds and contracts under Indian law (Transfer of Property Act 1882, Registration Act 1908, RERA 2016, Maharashtra Ownership Flats Act, Stamp Act, and Indian Contract Act 1872).
-
-Analyze the provided legal document completely and return ONLY a valid JSON object matching this exact schema:
-{
-  "documentInfo": {
-    "title": "Clear concise title (e.g., Sale Deed — Flat 301, Koregaon Park)",
-    "documentType": "Type (e.g., Deed of Absolute Sale, Residential Lease Agreement, Agreement to Sell, Power of Attorney)",
-    "property": "Address and description of property or transaction subject",
-    "city": "City or Jurisdiction",
-    "totalConsideration": "Financial consideration / monthly rent / deposit (e.g., ₹85,00,000 or ₹35,000/mo)",
-    "pageCount": 5,
-    "riskScore": 65,
-    "riskVerdict": "HIGH RISK / CAUTION / MODERATE RISK / SOUND DRAFT",
-    "highCount": 2,
-    "mediumCount": 3,
-    "lowCount": 1
-  },
-  "summaryData": {
-    "headline": "High-level plain-language synthesis headline",
-    "propertyTitle": "Full property description",
-    "transactionType": "Document type",
-    "totalConsideration": "Total amount with currency",
-    "parties": {
-      "vendor": "Name, PAN/details if found, and role of First Party (Seller/Landlord/Assignor)",
-      "purchaser": "Name, PAN/details if found, and role of Second Party (Buyer/Tenant/Assignee)"
-    },
-    "plainSummaryParagraphs": [
-      "Paragraph 1 explaining the essence in plain citizen language",
-      "Paragraph 2 explaining obligations and key risks"
-    ],
-    "keyCovenants": [
-      {
-        "category": "Title & Encumbrance / Possession / Payment / Maintenance",
-        "status": "NORMAL / CAUTION / ATTENTION",
-        "summary": "Plain English summary of what this covenant requires"
-      }
-    ],
-    "criticalRisksIdentified": [
-      {
-        "clause": "Clause X",
-        "concern": "High risk concern",
-        "plainMeaning": "What it actually means for the citizen",
-        "suggestedAdvocateFix": "Exact amendment suggested to advocate before signing"
-      }
-    ],
-    "recommendedNextSteps": [
-      "Step 1 to take with advocate before registration",
-      "Step 2 verification"
-    ]
-  },
-  "pages": [
-    {
-      "pageNumber": 1,
-      "headerTitle": "PAGE 1 — RECITALS & PARTIES",
-      "stampDutyNote": "Stamp duty or registration note if applicable",
-      "lines": [
-        {
-          "lineNumber": 1,
-          "clauseNumber": 1,
-          "text": "Actual line text from the document...",
-          "isFlaggedFinding": false,
-          "findingId": "optional f-1",
-          "findingSeverity": "HIGH/MEDIUM/LOW",
-          "findingTitle": "Short title if flagged"
-        }
-      ]
-    }
-  ],
-  "findings": [
-    {
-      "id": "f-1",
-      "clauseNumber": 1,
-      "pageNumber": 1,
-      "severity": "HIGH",
-      "theme": "Title & Encumbrances / Payment / Possession / Liabilities / Dispute Resolution",
-      "themeScorePercent": 85,
-      "shortTitle": "Short risk title",
-      "plainHeadline": "Plain headline",
-      "sourceQuote": "Verbatim quote from the document text",
-      "plainLanguageExplanation": "Simple plain explanation of the danger for citizen",
-      "practicalConsequences": [
-        "Consequence 1",
-        "Consequence 2"
-      ],
-      "advocateQuestion": "Specific precise question to put to advocate",
-      "advocateWhy": "Why this question is legally necessary",
-      "inAdvocateBrief": true,
-      "relatedModuleId": "m-1"
-    }
-  ],
-  "fullClauses": [
-    {
-      "clauseNumber": 1,
-      "pageNumber": 1,
-      "title": "Clause Title",
-      "category": "Parties & Title / Financial & Consideration / Possession & Handover / Taxes & Outgoings / Warranties & Indemnity / Dispute Resolution & General",
-      "originalLegalText": "Verbatim original legal text of the clause",
-      "plainExplanation": "Plain language explanation",
-      "buyerObligation": "What the buyer/tenant must do or comply with",
-      "sellerObligation": "What the seller/landlord must do",
-      "riskLevel": "HIGH / MEDIUM / LOW / STANDARD",
-      "riskReason": "Why this risk level applies",
-      "isFlagged": false
-    }
-  ],
-  "missingDocuments": [
-    {
-      "id": "md-1",
-      "title": "Name of statutory document (e.g. Encumbrance Certificate Form 15)",
-      "importance": "Critical / Recommended",
-      "reason": "Why this document is mandatory for this transaction",
-      "uploaded": false
-    }
-  ]
-}
-
-Ensure every clause in the uploaded text or PDF is captured in 'pages' and 'fullClauses'.
-Do NOT include Markdown code fence wrapping if possible, or wrap cleanly in \`\`\`json.`;
-
-  if (apiKey && apiKey !== 'MY_GEMINI_API_KEY') {
+  if (hasGeminiKey()) {
+    let sentAny = false;
     try {
-      const ai = new GoogleGenAI({
-        apiKey,
-        httpOptions: { headers: { 'User-Agent': 'aistudio-build' } },
-      });
-
-      let contents: any[] = [];
-
-      if (input.fileBase64 && (input.mimeType === 'application/pdf' || input.mimeType?.startsWith('image/'))) {
-        const isImage = Boolean(input.mimeType?.startsWith('image/'));
-        const effectiveMimeType = input.mimeType || (isImage ? 'image/jpeg' : 'application/pdf');
-        contents = [
-          {
-            inlineData: {
-              data: input.fileBase64,
-              mimeType: effectiveMimeType,
-            },
-          },
-          {
-            text: isImage
-              ? `${systemPrompt}\n\nLanguage preference: ${language}.\nNOTE: This file is a scanned physical document or photograph of a legal deed / stamp paper. Perform thorough Optical Character Recognition (OCR), accurately transcribe all clauses and recitals, identify the parties, covenants, and financial terms, and audit against Indian property and contract law.`
-              : `${systemPrompt}\n\nLanguage preference: ${language}.\nPlease examine this attached PDF document thoroughly.`,
-          },
-        ];
-      } else {
-        const textToAnalyze = input.rawText || '';
-        const l1 = applyMaskingLayer1(textToAnalyze);
-        const l2 = applyMaskingLayer2(l1.maskedText);
-        const sanitizedDoc = l2.maskedText;
-
-        contents = [
-          {
-            text: `${systemPrompt}\n\nLanguage preference: ${language}.\n\nDOCUMENT CONTENT TO ANALYZE:\n${sanitizedDoc.slice(0, 45000)}`,
-          },
-        ];
-      }
-
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.8-flash',
+      const stream = await getGeminiClient().models.generateContentStream({
+        model: selectedModel,
         contents,
-        config: {
-          responseMimeType: 'application/json',
-          temperature: 0.2,
-        },
+        config: { systemInstruction, temperature: 0.6 },
       });
-
-      const responseText = response.text || '';
-      if (responseText.trim().length > 0) {
-        let cleanJsonStr = responseText.trim();
-        if (cleanJsonStr.startsWith('```json')) {
-          cleanJsonStr = cleanJsonStr.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-        } else if (cleanJsonStr.startsWith('```')) {
-          cleanJsonStr = cleanJsonStr.replace(/^```\s*/, '').replace(/\s*```$/, '');
-        }
-
-        const parsed = JSON.parse(cleanJsonStr);
-        if (parsed.documentInfo && parsed.findings && parsed.pages) {
-          return {
-            id: docId,
-            documentInfo: {
-              ...parsed.documentInfo,
-              id: docId,
-              reviewedTimeAgo: 'Just now',
-              version: 'v1.0 (Live AI Scrutiny)',
-            },
-            summaryData: {
-              ...parsed.summaryData,
-              generatedAt: new Date().toISOString(),
-              modelUsed: 'Gemini 3.8 Flash (Multimodal Document Scrutiny)',
-              piiRedactedCount: 4,
-            },
-            pages: parsed.pages.map((p: any, pIdx: number) => ({
-              ...p,
-              pageNumber: p.pageNumber || pIdx + 1,
-              lines: (p.lines || []).map((l: any, lIdx: number) => ({
-                ...l,
-                lineNumber: l.lineNumber || lIdx + 1,
-              })),
-            })),
-            findings: parsed.findings.map((f: any, fIdx: number) => ({
-              ...f,
-              id: f.id || `f-${fIdx + 1}`,
-              inAdvocateBrief: true,
-              relatedModuleId: f.relatedModuleId || 'm-1',
-            })),
-            fullClauses: (parsed.fullClauses || []).map((c: any, cIdx: number) => ({
-              ...c,
-              clauseNumber: c.clauseNumber || cIdx + 1,
-              pageNumber: c.pageNumber || 1,
-            })),
-            missingDocuments: (parsed.missingDocuments || []).map((md: any, mIdx: number) => ({
-              ...md,
-              id: md.id || `md-${mIdx + 1}`,
-              uploaded: false,
-            })),
-            extractedTextPreview: input.rawText ? input.rawText.slice(0, 500) : fileName,
-          };
+      for await (const chunk of stream) {
+        const text = chunk.text;
+        if (text) {
+          sentAny = true;
+          onDelta(text);
         }
       }
-    } catch (err) {
-      console.warn('Gemini Document Analysis API call encountered an issue, running local legal rules engine:', err);
+      if (sentAny) return { modelUsed: selectedModel, offline: false };
+    } catch (err: any) {
+      console.warn(`Gemini streaming chat (${selectedModel}) failed:`, err?.message || err);
+      // Part of an answer already reached the user: do not append an unrelated canned reply.
+      if (sentAny) return { modelUsed: `${selectedModel} (interrupted)`, offline: false };
     }
   }
 
-  // Robust Legal Parser Fallback
-  return generateHeuristicDocumentPayload(input, docId);
+  onDelta(chatFallbackReply(messages, language));
+  return { modelUsed: `${selectedModel} (Local Legal Rules Fallback)`, offline: true };
 }
 
 /**
- * Intelligent Fallback Legal Parser
- * Extracts clauses, parties, values, and flags standard exposure clauses
+ * Real AI Document Ingestion & Statutory Scrutiny Engine.
+ * Delegates to the chunked, streaming pipeline and returns only the final payload.
  */
-function generateHeuristicDocumentPayload(
-  input: DocumentAnalysisInput,
-  docId: string
-): AnalyzedDocumentPayload {
-  const text = input.rawText || (input.fileName ? `Legal Document: ${input.fileName}\n(Content ingested via local parser)` : '');
-  const lines = text.split('\n').map((l) => l.trim()).filter((l) => l.length > 0);
-
-  // Extract Title
-  let title = input.fileName ? input.fileName.replace(/\.[^/.]+$/, '') : 'Legal Deed Document';
-  if (lines.length > 0 && lines[0].length < 100) {
-    title = lines[0];
-  }
-
-  // Chunk lines into pages (approx 15 lines per page)
-  const pageSize = 15;
-  const pageCount = Math.max(1, Math.ceil(lines.length / pageSize));
-  const pages: AnalyzedDocumentPayload['pages'] = [];
-
-  // Finding and clause collectors
-  const findings: AnalyzedDocumentPayload['findings'] = [];
-  const fullClauses: AnalyzedDocumentPayload['fullClauses'] = [];
-
-  let currentLineNumber = 1;
-  let clauseCounter = 1;
-
-  for (let p = 0; p < pageCount; p++) {
-    const pageLines = lines.slice(p * pageSize, (p + 1) * pageSize);
-    const parsedPageLines: any[] = [];
-
-    for (const rawLine of pageLines) {
-      const isNumberedClause = /^\d+[\.\)]\s+/.test(rawLine) || /^clause\s+\d+/i.test(rawLine);
-      if (isNumberedClause) {
-        clauseCounter++;
-      }
-
-      // Check for legal risk triggers
-      const lower = rawLine.toLowerCase();
-      let isRisk = false;
-      let severity: 'HIGH' | 'MEDIUM' | 'LOW' = 'LOW';
-      let riskTitle = '';
-      let explanation = '';
-      let advocateQ = '';
-
-      if (lower.includes('mortgage') || lower.includes('loan') || lower.includes('charge') || lower.includes('encumbrance')) {
-        isRisk = true;
-        severity = 'HIGH';
-        riskTitle = 'Encumbrance / Mortgage Condition Precedent';
-        explanation = 'The clause references an existing charge, loan, or mortgage. Without a registered Release Deed / Satisfaction Certificate, the property remains legally encumbered.';
-        advocateQ = 'Demand an official bank foreclosure letter and require a tripartite Release Deed prior to consideration disbursement.';
-      } else if (lower.includes('possession') && (lower.includes('due course') || lower.includes('reasonable time') || lower.includes('after registration'))) {
-        isRisk = true;
-        severity = 'HIGH';
-        riskTitle = 'Unspecified Possession Handover Timeline';
-        explanation = 'Handover is conditional or indefinite rather than immediate on the date of execution at the Sub-Registrar.';
-        advocateQ = 'Require immediate physical vacant possession with keys delivered simultaneously at registration.';
-      } else if (lower.includes('as is') || lower.includes('where is') || lower.includes('defect liability')) {
-        isRisk = true;
-        severity = 'MEDIUM';
-        riskTitle = 'As-Is Condition & Defect Limitation';
-        explanation = 'Restricts buyer remedies for structural or latent defects discovered after signing.';
-        advocateQ = 'Amend to include a minimum 24-month latent defect indemnity backed by vendor warranty.';
-      } else if (lower.includes('indemnity') || lower.includes('indemnify') || lower.includes('hold harmless')) {
-        isRisk = true;
-        severity = 'MEDIUM';
-        riskTitle = 'Unilateral Indemnity Clause';
-        explanation = 'Imposes liability without reciprocal protection from the counterparty.';
-        advocateQ = 'Ensure indemnities are strictly mutual and exclude pre-existing statutory liabilities.';
-      } else if (lower.includes('arbitration') || lower.includes('jurisdiction') || lower.includes('exclusive jurisdiction')) {
-        isRisk = true;
-        severity = 'LOW';
-        riskTitle = 'Dispute Jurisdiction Clause';
-        explanation = 'Fixes the legal forum for settling disputes arising from this contract.';
-        advocateQ = 'Confirm the specified jurisdiction is local and accessible without prohibitive travel expenses.';
-      }
-
-      if (isRisk) {
-        const findingId = `f-${findings.length + 1}`;
-        parsedPageLines.push({
-          lineNumber: currentLineNumber,
-          clauseNumber: clauseCounter,
-          text: rawLine,
-          isFlaggedFinding: true,
-          findingId,
-          findingSeverity: severity,
-          findingTitle: riskTitle,
-        });
-
-        findings.push({
-          id: findingId,
-          clauseNumber: clauseCounter,
-          pageNumber: p + 1,
-          severity,
-          theme: severity === 'HIGH' ? 'Title & Encumbrances' : 'Contractual Liabilities',
-          themeScorePercent: severity === 'HIGH' ? 88 : 72,
-          shortTitle: riskTitle,
-          plainHeadline: riskTitle,
-          sourceQuote: rawLine,
-          plainLanguageExplanation: explanation,
-          practicalConsequences: [
-            'Exposes purchaser to post-registration disputes.',
-            'Requires explicit written legal amendment prior to execution.',
-          ],
-          advocateQuestion: advocateQ,
-          advocateWhy: 'Standard Indian real estate conveyance protection.',
-          inAdvocateBrief: true,
-          relatedModuleId: 'm-1',
-        });
-      } else {
-        parsedPageLines.push({
-          lineNumber: currentLineNumber,
-          clauseNumber: clauseCounter,
-          text: rawLine,
-        });
-      }
-
-      // Add to full clauses
-      if (isNumberedClause || rawLine.length > 50) {
-        fullClauses.push({
-          clauseNumber: clauseCounter,
-          pageNumber: p + 1,
-          title: `Clause ${clauseCounter}: ${rawLine.slice(0, 45)}...`,
-          category: isRisk ? 'Warranties & Indemnity' : 'Parties & Title',
-          originalLegalText: rawLine,
-          plainExplanation: isRisk ? explanation : 'Standard contractual covenant defining rights and obligations.',
-          buyerObligation: 'Comply with timely payments and registration requisites.',
-          sellerObligation: 'Deliver marketable title and clear documentation.',
-          riskLevel: isRisk ? severity : 'STANDARD',
-          isFlagged: isRisk,
-        });
-      }
-
-      currentLineNumber++;
-    }
-
-    pages.push({
-      pageNumber: p + 1,
-      headerTitle: `PAGE ${p + 1} — ${p === 0 ? 'RECITALS & COVENANTS' : 'TERMS & CONDITIONS'}`,
-      stampDutyNote: p === 0 ? 'Subject to Maharashtra Stamp Act, 1958' : undefined,
-      lines: parsedPageLines,
-    });
-  }
-
-  // If no lines were provided (empty text), supply clean placeholder structure
-  if (pages.length === 0) {
-    pages.push({
-      pageNumber: 1,
-      headerTitle: 'PAGE 1 — INGESTED CONTRACT',
-      lines: [
-        {
-          lineNumber: 1,
-          clauseNumber: 1,
-          text: 'Document loaded into Vidhi Legal AI workspace. Ready for clause analysis.',
-        },
-      ],
-    });
-  }
-
-  const highCount = findings.filter((f) => f.severity === 'HIGH').length;
-  const mediumCount = findings.filter((f) => f.severity === 'MEDIUM').length;
-  const lowCount = findings.filter((f) => f.severity === 'LOW').length;
-  const riskScore = Math.max(30, 100 - (highCount * 22 + mediumCount * 10 + lowCount * 4));
-
-  return {
-    id: docId,
-    documentInfo: {
-      id: docId,
-      title: title.slice(0, 60),
-      property: 'Property identified in uploaded document',
-      city: 'Pune / Mumbai Jurisdiction',
-      totalConsideration: 'As specified in contract draft',
-      reviewedTimeAgo: 'Just now',
-      pageCount: pages.length,
-      version: 'v1.0 (Live Ingested)',
-      riskScore,
-      riskVerdict: highCount > 0 ? 'HIGH RISK DRAFT' : mediumCount > 0 ? 'CAUTION' : 'SOUND DRAFT',
-      highCount,
-      mediumCount,
-      lowCount,
-    },
-    summaryData: {
-      headline: `Executive Scrutiny: ${title.slice(0, 50)} — ${findings.length} points flagged for advocate review.`,
-      propertyTitle: 'Property described in uploaded contract draft',
-      transactionType: 'Conveyance / Agreement Draft',
-      totalConsideration: 'Under review',
-      parties: {
-        vendor: 'Party of the First Part (Transferor)',
-        purchaser: 'Party of the Second Part (Transferee)',
-      },
-      plainSummaryParagraphs: [
-        `This legal document contains ${pages.length} page(s) and ${clauseCounter} clause(s). Vidhi AI has mapped each section to Indian statutory standards.`,
-        `Identified ${findings.length} clauses requiring legal scrutiny, with ${highCount} high-exposure covenants that should be amended prior to formal signing.`,
-      ],
-      keyCovenants: [
-        {
-          category: 'Title & Ownership',
-          status: highCount > 0 ? 'ATTENTION' : 'NORMAL',
-          summary: 'Title transfer conditions and encumbrance warranties.',
-        },
-        {
-          category: 'Possession & Handover',
-          status: mediumCount > 0 ? 'CAUTION' : 'NORMAL',
-          summary: 'Timeline for physical vacant possession delivery.',
-        },
-      ],
-      criticalRisksIdentified: findings.slice(0, 3).map((f) => ({
-        clause: `Clause ${f.clauseNumber}`,
-        concern: f.shortTitle,
-        plainMeaning: f.plainLanguageExplanation,
-        suggestedAdvocateFix: f.advocateQuestion,
-      })),
-      recommendedNextSteps: [
-        'Share flagged questions with your advocate before registration.',
-        'Insist on written addendum for all high-risk items.',
-      ],
-      generatedAt: new Date().toISOString(),
-      modelUsed: 'Vidhi Legal Intelligence Parser (Live Ingest)',
-      piiRedactedCount: 2,
-    },
-    pages,
-    findings,
-    fullClauses: fullClauses.length > 0 ? fullClauses : [
-      {
-        clauseNumber: 1,
-        pageNumber: 1,
-        title: 'Clause 1: Ingested Covenant',
-        category: 'Parties & Title',
-        originalLegalText: 'Standard operative clause.',
-        plainExplanation: 'Establishes basic agreement terms.',
-        buyerObligation: 'Verify compliance.',
-        sellerObligation: 'Fulfill covenants.',
-        riskLevel: 'STANDARD',
-        isFlagged: false,
-      },
-    ],
-    missingDocuments: [
-      {
-        id: 'md-1',
-        title: 'Encumbrance Certificate (EC Form 15)',
-        importance: 'Critical',
-        reason: 'Verifies 30-year registered charges at the Sub-Registrar office.',
-        uploaded: false,
-      },
-      {
-        id: 'md-2',
-        title: 'Original Title Deeds / Chain of Conveyance',
-        importance: 'Critical',
-        reason: 'Establishes unbroken lineage of lawful ownership.',
-        uploaded: false,
-      },
-      {
-        id: 'md-3',
-        title: 'Society NOC & Share Certificate',
-        importance: 'Recommended',
-        reason: 'Confirms nil pending maintenance dues and transfer sanction.',
-        uploaded: false,
-      },
-    ],
-    extractedTextPreview: text.slice(0, 400),
-  };
+export async function analyzeUploadedDocument(input: DocumentAnalysisInput): Promise<AnalyzedDocumentPayload> {
+  return analyzeDocumentStreaming(input, () => {});
 }
-
-

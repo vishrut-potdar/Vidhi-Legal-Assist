@@ -12,6 +12,7 @@ import {
   Palette,
 } from 'lucide-react';
 import { DocumentAnnotation, HighlightColor, Language } from '../types';
+import { useDialogA11y } from '../hooks/useDialogA11y';
 
 interface AnnotationModalProps {
   isOpen: boolean;
@@ -149,6 +150,8 @@ export const AnnotationModal: React.FC<AnnotationModalProps> = ({
     }
   }, [annotation]);
 
+  const dialogRef = useDialogA11y<HTMLDivElement>(isOpen && !!annotation, onClose);
+
   if (!isOpen || !annotation) return null;
 
   const isEditing = Boolean(annotation.id);
@@ -183,6 +186,8 @@ export const AnnotationModal: React.FC<AnnotationModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
       <div
+        ref={dialogRef}
+        tabIndex={-1}
         className="bg-[#FCFBF7] border border-[#D5D0C3] rounded-xl shadow-2xl max-w-lg w-full overflow-hidden flex flex-col max-h-[90vh]"
         role="dialog"
         aria-modal="true"
@@ -251,7 +256,7 @@ export const AnnotationModal: React.FC<AnnotationModalProps> = ({
                 const conf = colorStyles[c];
                 const isSelected = color === c;
                 return (
-                  <button
+                  <button aria-label={`${conf.name} (${conf.label})`} aria-pressed={isSelected}
                     key={c}
                     type="button"
                     onClick={() => setColor(c)}
@@ -281,7 +286,7 @@ export const AnnotationModal: React.FC<AnnotationModalProps> = ({
             </label>
             <div className="flex flex-wrap gap-1.5">
               {tagOptions.map((t) => (
-                <button
+                <button aria-pressed={tag === t.value}
                   key={t.value}
                   type="button"
                   onClick={() => setTag(t.value)}
@@ -316,7 +321,7 @@ export const AnnotationModal: React.FC<AnnotationModalProps> = ({
             </div>
 
             <div className="relative rounded-lg p-1 bg-[#FEF9C3]/50 border border-amber-300 shadow-inner">
-              <textarea
+              <textarea aria-label="Note text"
                 value={note}
                 onChange={(e) => setNote(e.target.value.slice(0, 300))}
                 placeholder="Write your note, question for your lawyer, or reminder for registration day..."

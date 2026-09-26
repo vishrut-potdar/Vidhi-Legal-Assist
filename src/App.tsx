@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import {
   Menu,
   Home,
@@ -28,21 +28,35 @@ import {
   initialDocumentAnnotations,
 } from './data/mockData';
 import { Sidebar } from './components/Sidebar';
-import { OverviewView } from './components/OverviewView';
-import { DocumentReviewView } from './components/DocumentReviewView';
-import { ExplanationView } from './components/ExplanationView';
-import { AdvocateBriefView } from './components/AdvocateBriefView';
-import { LegalLiteracyView } from './components/LegalLiteracyView';
-import { TimelineView } from './components/TimelineView';
-import { DocumentHistoryView } from './components/DocumentHistoryView';
-import { RiskRubricView } from './components/RiskRubricView';
-import { PreSigningChecklistView } from './components/PreSigningChecklistView';
-import { DisputePathwaysView } from './components/DisputePathwaysView';
 import { UploadModal, AnalyzedDocumentResult } from './components/UploadModal';
 import { AskQuestionModal } from './components/AskQuestionModal';
-import { DownloadReportModal } from './components/DownloadReportModal';
-import { PipelineViewerModal } from './components/PipelineViewerModal';
 import { GeminiChatbot } from './components/GeminiChatbot';
+import { ReadingLevelToggle } from './components/ReadingLevelToggle';
+
+// Workspace views and heavy modals are code-split so the first load (upload screen) stays small on mobile data.
+const named = <T extends Record<string, any>, K extends keyof T>(loader: () => Promise<T>, key: K) =>
+  lazy(() => loader().then((m) => ({ default: m[key] })));
+const OverviewView = named(() => import('./components/OverviewView'), 'OverviewView');
+const DocumentReviewView = named(() => import('./components/DocumentReviewView'), 'DocumentReviewView');
+const ExplanationView = named(() => import('./components/ExplanationView'), 'ExplanationView');
+const AdvocateBriefView = named(() => import('./components/AdvocateBriefView'), 'AdvocateBriefView');
+const LegalLiteracyView = named(() => import('./components/LegalLiteracyView'), 'LegalLiteracyView');
+const TimelineView = named(() => import('./components/TimelineView'), 'TimelineView');
+const DocumentHistoryView = named(() => import('./components/DocumentHistoryView'), 'DocumentHistoryView');
+const RiskRubricView = named(() => import('./components/RiskRubricView'), 'RiskRubricView');
+const PreSigningChecklistView = named(() => import('./components/PreSigningChecklistView'), 'PreSigningChecklistView');
+const DisputePathwaysView = named(() => import('./components/DisputePathwaysView'), 'DisputePathwaysView');
+const DownloadReportModal = named(() => import('./components/DownloadReportModal'), 'DownloadReportModal');
+const PipelineViewerModal = named(() => import('./components/PipelineViewerModal'), 'PipelineViewerModal');
+
+const ViewLoading = () => (
+  <div role="status" className="py-16 text-center text-xs text-[#6F6D65]">
+    Loading…
+  </div>
+);
+
+// Keys used by earlier versions that stored full documents in the browser. Purged on startup.
+const LEGACY_DOCUMENT_KEYS = ['vidhi_doc_library_v3', 'vidhi_active_doc_id_v3', 'vidhi_annotations_v1'];
 import { HomepageView } from './components/HomepageView';
 import { DocumentPage, deedPages } from './data/documentPagesData';
 import { fullDocumentClauses } from './data/legalIntelligenceData';
@@ -56,21 +70,13 @@ export interface IngestedDocument {
   fullClauses: FullClauseExplanation[];
   missingDocs: MissingDocument[];
   summaryData?: any;
+  processingNotes?: AnalyzedDocumentResult['processingNotes'];
   uploadedAt: string;
 }
 
 export default function App() {
   const [language, setLanguage] = useState<Language>('EN');
-  const [currentTab, setCurrentTab] = useState<string>(() => {
-    try {
-      const saved = localStorage.getItem('vidhi_doc_library_v3');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return 'overview';
-      }
-    } catch (e) {}
-    return 'home';
-  });
+  const [currentTab, setCurrentTab] = useState<string>('home');
   // Default to auto-hidden taskbar so hovering near screen edge reveals it immediately
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
     try {
@@ -81,28 +87,25 @@ export default function App() {
   });
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState<boolean>(false);
 
-  // Document Library state - start empty or load saved user documents
-  const [documentLibrary, setDocumentLibrary] = useState<IngestedDocument[]>(() => {
-    try {
-      const saved = localStorage.getItem('vidhi_doc_library_v3');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-    } catch (e) {
-      console.error('Failed to load documents from localStorage', e);
-    }
-    // Clean initial state awaiting user's actual document
-    return [];
-  });
+  // Document library lives in memory for this browser tab only. Nothing about a
+  // document is written to browser storage; closing or reloading the tab clears it.
+  const [documentLibrary, setDocumentLibrary] = useState<IngestedDocument[]>([]);
+  const [activeDocId, setActiveDocId] = useState<string>('');
+  const [analysisNotice, setAnalysisNotice] = useState<IngestedDocument['processingNotes'] | null>(null);
+  // Bumped by "Clear my data" to remount components that hold conversation state (chat, Q&A).
+  const [dataEpoch, setDataEpoch] = useState(0);
+  const [clearedMessage, setClearedMessage] = useState<string>('');
 
-  const [activeDocId, setActiveDocId] = useState<string>(() => {
+  useEffect(() => {
     try {
-      const savedId = localStorage.getItem('vidhi_active_doc_id_v3');
-      if (savedId) return savedId;
-    } catch (e) {}
-    return '';
-  });
+      LEGACY_DOCUMENT_KEYS.forEach((key) => localStorage.removeItem(key));
+    } catch {}
+  }, []);
+
+  // Keep the page language in sync so screen readers pronounce Hindi / Marathi correctly.
+  useEffect(() => {
+    document.documentElement.lang = language === 'HI' ? 'hi' : language === 'MR' ? 'mr' : 'en';
+  }, [language]);
 
   const activeDoc =
     documentLibrary.find((d) => d.id === activeDocId) ||
@@ -129,16 +132,12 @@ export default function App() {
   const [missingDocs, setMissingDocs] = useState<MissingDocument[]>(() => activeDoc ? activeDoc.missingDocs : missingDocumentsList);
   const [currentSummaryData, setCurrentSummaryData] = useState<any>(() => activeDoc ? activeDoc.summaryData : null);
 
-  // Sync to localStorage
+  // Only the sidebar layout preference is remembered between visits.
   useEffect(() => {
     try {
-      localStorage.setItem('vidhi_doc_library_v3', JSON.stringify(documentLibrary));
-      localStorage.setItem('vidhi_active_doc_id_v3', activeDocId);
       localStorage.setItem('vidhi_taskbar_collapsed', JSON.stringify(isSidebarCollapsed));
-    } catch (e) {
-      console.error('Failed to save document library', e);
-    }
-  }, [documentLibrary, activeDocId, isSidebarCollapsed]);
+    } catch {}
+  }, [isSidebarCollapsed]);
 
   // Sync state when active document changes
   useEffect(() => {
@@ -192,6 +191,47 @@ export default function App() {
         setCurrentTab('home');
       }
     }
+  };
+
+  // Wipes every document, note, chat and saved preference from this browser.
+  const handleClearAllData = () => {
+    const ok = window.confirm(
+      'Clear all your data?\n\nThis removes every document, note and chat from this browser and resets saved preferences. This cannot be undone.'
+    );
+    if (!ok) return;
+    try {
+      Object.keys(localStorage)
+        .filter((k) => k.startsWith('vidhi_'))
+        .forEach((k) => localStorage.removeItem(k));
+      sessionStorage.clear();
+    } catch {}
+    setDocumentLibrary([]);
+    setActiveDocId('');
+    setAnnotations([]);
+    setFindings([]);
+    setCurrentPages([]);
+    setCurrentFullClauses([]);
+    setMissingDocs(missingDocumentsList);
+    setCurrentSummaryData(null);
+    setSelectedFinding(null);
+    setAnalysisNotice(null);
+    setDocumentInfo({
+      ...initialDocumentInfo,
+      title: 'No Document Loaded (Upload to begin)',
+      riskVerdict: 'AWAITING UPLOAD',
+      pageCount: 0,
+      riskScore: 100,
+      highCount: 0,
+      mediumCount: 0,
+      lowCount: 0,
+    });
+    setIsChatbotOpen(false);
+    setIsAskOpen(false);
+    setMobileSidebarOpen(false);
+    setDataEpoch((n) => n + 1);
+    setCurrentTab('home');
+    setClearedMessage('All your documents, notes and chats have been cleared from this browser.');
+    window.setTimeout(() => setClearedMessage(''), 6000);
   };
 
   // Quick Load Sample Agreement
@@ -349,24 +389,8 @@ export default function App() {
   const [selectedLearnModuleId, setSelectedLearnModuleId] = useState<string | undefined>(undefined);
   const [reviewSeverityFilter, setReviewSeverityFilter] = useState<'ALL' | Severity>('ALL');
 
-  // Personal Sticky Notes & Highlights state saved locally
-  const [annotations, setAnnotations] = useState<DocumentAnnotation[]>(() => {
-    try {
-      const saved = localStorage.getItem('vidhi_annotations_v1');
-      if (saved) return JSON.parse(saved);
-    } catch (e) {
-      console.error('Failed to load annotations from localStorage', e);
-    }
-    return initialDocumentAnnotations;
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('vidhi_annotations_v1', JSON.stringify(annotations));
-    } catch (e) {
-      console.error('Failed to save annotations to localStorage', e);
-    }
-  }, [annotations]);
+  // Personal sticky notes & highlights — kept in memory for this session only (they quote document text).
+  const [annotations, setAnnotations] = useState<DocumentAnnotation[]>(initialDocumentAnnotations);
 
   const handleSaveAnnotation = (annotation: DocumentAnnotation) => {
     setAnnotations((prev) => {
@@ -416,8 +440,10 @@ export default function App() {
       fullClauses: analyzedDoc.fullClauses,
       missingDocs: analyzedDoc.missingDocuments,
       summaryData: analyzedDoc.summaryData,
+      processingNotes: analyzedDoc.processingNotes,
       uploadedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
+    setAnalysisNotice(analyzedDoc.processingNotes || null);
 
     setDocumentLibrary((prev) => [newDoc, ...prev.filter((d) => d.id !== newDoc.id)]);
     setActiveDocId(newDoc.id);
@@ -440,15 +466,23 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#F4F1EA] text-[#1C1C19] flex flex-col md:flex-row antialiased">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[100] focus:px-4 focus:py-2 focus:rounded focus:bg-[#171714] focus:text-white focus:text-sm"
+      >
+        Skip to main content
+      </a>
+
       {/* Mobile Top App Bar (Hidden on md+) */}
-      <header className="md:hidden bg-[#161513] text-[#FAF8F5] px-4 py-2.5 flex items-center justify-between border-b border-[#262420] sticky top-0 z-30 shadow-sm">
+      <header className="md:hidden bg-[#161513] text-[#FAF8F5] px-3 py-2 flex flex-wrap items-center justify-between gap-y-1.5 border-b border-[#262420] sticky top-0 z-30 shadow-sm">
         <div className="flex items-center gap-2.5">
           <button
             onClick={() => setMobileSidebarOpen(true)}
-            className="p-1.5 -ml-1 text-[#A8A49A] hover:text-white rounded"
-            aria-label="Open Navigation Menu"
+            className="p-2 -ml-1 text-[#A8A49A] hover:text-white rounded"
+            aria-label="Open navigation menu"
+            aria-expanded={mobileSidebarOpen}
           >
-            <Menu className="w-5 h-5" />
+            <Menu className="w-5 h-5" aria-hidden="true" />
           </button>
           <div>
             <h1 className="font-serif text-lg tracking-wider text-[#FAF8F5] leading-none">
@@ -462,10 +496,13 @@ export default function App() {
 
         <div className="flex items-center gap-2">
           {/* Quick Trilingual Switcher */}
-          <div className="flex items-center gap-0.5 text-[11px] font-mono bg-[#22201C] px-1.5 py-0.5 rounded border border-[#33302A]">
+          <div role="group" aria-label="Language" className="flex items-center gap-0.5 text-[11px] font-mono bg-[#22201C] px-1 py-0.5 rounded border border-[#33302A]">
             <button
               onClick={() => setLanguage('EN')}
-              className={`px-1 rounded ${
+              aria-pressed={language === 'EN'}
+              aria-label="English"
+              lang="en"
+              className={`px-1.5 py-0.5 rounded ${
                 language === 'EN' ? 'bg-[#FAF8F5] text-[#171714] font-bold' : 'text-[#8C887B]'
               }`}
             >
@@ -474,7 +511,10 @@ export default function App() {
             <span className="text-[#444]">/</span>
             <button
               onClick={() => setLanguage('HI')}
-              className={`px-1 rounded ${
+              aria-pressed={language === 'HI'}
+              aria-label="हिंदी (Hindi)"
+              lang="hi"
+              className={`px-1.5 py-0.5 rounded ${
                 language === 'HI' ? 'bg-[#FAF8F5] text-[#171714] font-bold' : 'text-[#8C887B]'
               }`}
             >
@@ -483,7 +523,10 @@ export default function App() {
             <span className="text-[#444]">/</span>
             <button
               onClick={() => setLanguage('MR')}
-              className={`px-1 rounded ${
+              aria-pressed={language === 'MR'}
+              aria-label="मराठी (Marathi)"
+              lang="mr"
+              className={`px-1.5 py-0.5 rounded ${
                 language === 'MR' ? 'bg-[#FAF8F5] text-[#171714] font-bold' : 'text-[#8C887B]'
               }`}
             >
@@ -497,6 +540,11 @@ export default function App() {
           >
             Ask Deed
           </button>
+        </div>
+
+        <div className="w-full flex items-center justify-between gap-2">
+          <span className="text-[10px] font-mono uppercase tracking-wider text-[#8C887B]">Explanations</span>
+          <ReadingLevelToggle variant="dark" language={language} compact />
         </div>
       </header>
 
@@ -523,6 +571,7 @@ export default function App() {
         onCloseMobile={() => setMobileSidebarOpen(false)}
         activeDocTitle={activeDoc ? activeDoc.documentInfo.title : undefined}
         hasActiveDoc={documentLibrary.length > 0 && !!activeDoc}
+        onClearData={handleClearAllData}
       />
 
       {/* Main Workspace Column */}
@@ -542,6 +591,7 @@ export default function App() {
             </div>
 
             <div className="flex items-center gap-2">
+              <ReadingLevelToggle language={language} compact />
               <button
                 onClick={() => setCurrentTab('home')}
                 className="px-3 py-1.5 text-xs font-medium text-white bg-[#171714] rounded hover:bg-[#2C2B26] transition-colors shadow-2xs flex items-center gap-1.5 cursor-pointer"
@@ -560,10 +610,16 @@ export default function App() {
 
         {/* Main Workspace Content Area */}
         <main
-          className={`flex-1 p-4 sm:p-6 md:p-8 w-full overflow-y-auto transition-all duration-300 pb-24 md:pb-8 ${
+          id="main-content"
+          tabIndex={-1}
+          className={`flex-1 p-3 sm:p-6 md:p-8 w-full overflow-y-auto transition-all duration-300 pb-24 md:pb-8 focus:outline-none ${
             isSidebarCollapsed ? 'max-w-[1600px] mx-auto' : 'max-w-7xl mx-auto'
           }`}
         >
+          <div role="status" aria-live="polite" className={clearedMessage ? 'mb-4 p-3 rounded-lg border border-[#CADBCB] bg-[#F4F8F4] text-xs text-[#34503A]' : 'sr-only'}>
+            {clearedMessage}
+          </div>
+
           {/* If on home tab or if no documents are uploaded yet, display the Homepage & OCR Hub */}
           {currentTab === 'home' || documentLibrary.length === 0 ? (
             <HomepageView
@@ -575,7 +631,11 @@ export default function App() {
               onGoToOverview={() => setCurrentTab('overview')}
             />
           ) : (
-            <>
+            <Suspense fallback={<ViewLoading />}>
+              {analysisNotice && (
+                <AnalysisNoticeBanner notes={analysisNotice} onDismiss={() => setAnalysisNotice(null)} />
+              )}
+
               {currentTab === 'overview' && (
                 <OverviewView
                   documentInfo={documentInfo}
@@ -706,17 +766,18 @@ export default function App() {
                   onOpenBrief={() => setCurrentTab('brief')}
                 />
               )}
-            </>
+            </Suspense>
           )}
         </main>
       </div>
 
       {/* Mobile Bottom Navigation Bar (Hidden on md+) */}
-      <nav className="md:hidden fixed bottom-0 inset-x-0 bg-[#161513] text-[#FAF8F5] border-t border-[#262420] z-30 flex items-center justify-around py-2 px-1 backdrop-blur-md">
+      <nav aria-label="Primary" className="md:hidden fixed bottom-0 inset-x-0 bg-[#161513] text-[#FAF8F5] border-t border-[#262420] z-30 flex items-center justify-around py-1.5 px-1 pb-[max(0.375rem,env(safe-area-inset-bottom))]">
         <button
           onClick={() => setCurrentTab('overview')}
-          className={`flex flex-col items-center gap-0.5 text-[10px] py-1 px-2 rounded transition-colors ${
-            currentTab === 'overview' ? 'text-[#C38A2E] font-medium' : 'text-[#8C887B]'
+          aria-current={currentTab === 'overview' ? 'page' : undefined}
+          className={`flex flex-col items-center gap-0.5 text-[10px] min-h-11 min-w-11 py-1 px-2 rounded transition-colors ${
+            currentTab === 'overview' ? 'text-[#C38A2E] font-medium' : 'text-[#A8A49A]'
           }`}
         >
           <Home className="w-4 h-4" />
@@ -725,8 +786,9 @@ export default function App() {
 
         <button
           onClick={() => setCurrentTab('documents')}
-          className={`flex flex-col items-center gap-0.5 text-[10px] py-1 px-2 rounded transition-colors ${
-            currentTab === 'documents' ? 'text-[#C38A2E] font-medium' : 'text-[#8C887B]'
+          aria-current={currentTab === 'documents' ? 'page' : undefined}
+          className={`flex flex-col items-center gap-0.5 text-[10px] min-h-11 min-w-11 py-1 px-2 rounded transition-colors ${
+            currentTab === 'documents' ? 'text-[#C38A2E] font-medium' : 'text-[#A8A49A]'
           }`}
         >
           <FileText className="w-4 h-4" />
@@ -735,8 +797,9 @@ export default function App() {
 
         <button
           onClick={() => setCurrentTab('rubric')}
-          className={`flex flex-col items-center gap-0.5 text-[10px] py-1 px-2 rounded transition-colors ${
-            currentTab === 'rubric' ? 'text-[#C38A2E] font-medium' : 'text-[#8C887B]'
+          aria-current={currentTab === 'rubric' ? 'page' : undefined}
+          className={`flex flex-col items-center gap-0.5 text-[10px] min-h-11 min-w-11 py-1 px-2 rounded transition-colors ${
+            currentTab === 'rubric' ? 'text-[#C38A2E] font-medium' : 'text-[#A8A49A]'
           }`}
         >
           <ShieldAlert className="w-4 h-4" />
@@ -745,8 +808,9 @@ export default function App() {
 
         <button
           onClick={() => setCurrentTab('checklist')}
-          className={`flex flex-col items-center gap-0.5 text-[10px] py-1 px-2 rounded transition-colors ${
-            currentTab === 'checklist' ? 'text-[#C38A2E] font-medium' : 'text-[#8C887B]'
+          aria-current={currentTab === 'checklist' ? 'page' : undefined}
+          className={`flex flex-col items-center gap-0.5 text-[10px] min-h-11 min-w-11 py-1 px-2 rounded transition-colors ${
+            currentTab === 'checklist' ? 'text-[#C38A2E] font-medium' : 'text-[#A8A49A]'
           }`}
         >
           <CheckSquare className="w-4 h-4" />
@@ -755,7 +819,7 @@ export default function App() {
 
         <button
           onClick={() => handleOpenAskQuestion()}
-          className="flex flex-col items-center gap-0.5 text-[10px] py-1 px-2 text-[#C38A2E] font-medium"
+          className="flex flex-col items-center gap-0.5 text-[10px] min-h-11 min-w-11 py-1 px-2 text-[#C38A2E] font-medium"
         >
           <HelpCircle className="w-4 h-4" />
           <span>Q&amp;A</span>
@@ -772,31 +836,41 @@ export default function App() {
 
       {/* Global Citizen Ask Question Modal */}
       <AskQuestionModal
+        key={`ask-${dataEpoch}`}
         isOpen={isAskOpen}
         onClose={() => setIsAskOpen(false)}
         language={language}
         initialQuery={askInitialQuery}
       />
 
-      {/* Global Download Report Modal */}
-      <DownloadReportModal
-        isOpen={isDownloadReportOpen}
-        onClose={() => setIsDownloadReportOpen(false)}
-        documentInfo={documentInfo}
-        findings={findings}
-        missingDocs={missingDocs}
-        language={language}
-      />
+      {/* Global Download Report Modal (loaded on demand) */}
+      {isDownloadReportOpen && (
+        <Suspense fallback={null}>
+          <DownloadReportModal
+            isOpen={isDownloadReportOpen}
+            onClose={() => setIsDownloadReportOpen(false)}
+            documentInfo={documentInfo}
+            findings={findings}
+            missingDocs={missingDocs}
+            language={language}
+          />
+        </Suspense>
+      )}
 
-      {/* Backend Architecture & AI Pipeline Inspector Modal */}
-      <PipelineViewerModal
-        isOpen={isPipelineViewerOpen}
-        onClose={() => setIsPipelineViewerOpen(false)}
-        language={language}
-      />
+      {/* Backend Architecture & AI Pipeline Inspector Modal (loaded on demand) */}
+      {isPipelineViewerOpen && (
+        <Suspense fallback={null}>
+          <PipelineViewerModal
+            isOpen={isPipelineViewerOpen}
+            onClose={() => setIsPipelineViewerOpen(false)}
+            language={language}
+          />
+        </Suspense>
+      )}
 
       {/* Multi-Turn Gemini AI Legal Chatbot */}
       <GeminiChatbot
+        key={`chat-${dataEpoch}`}
         isOpen={isChatbotOpen}
         onClose={() => setIsChatbotOpen(false)}
         language={language}
@@ -837,11 +911,11 @@ export default function App() {
             setChatbotInitialQuestion('');
             setIsChatbotOpen(true);
           }}
-          className="fixed bottom-5 right-5 z-40 px-3.5 py-2.5 rounded-full bg-[#161513] text-[#FAF8F5] border border-[#3A3831] shadow-xl hover:bg-[#282622] transition-all flex items-center gap-2 text-xs font-medium cursor-pointer"
+          className="fixed bottom-20 md:bottom-5 right-4 md:right-5 z-40 px-3.5 py-2.5 rounded-full bg-[#161513] text-[#FAF8F5] border border-[#3A3831] shadow-xl hover:bg-[#282622] transition-all flex items-center gap-2 text-xs font-medium cursor-pointer"
           title="Chat with Vidhi AI Legal Counsel"
-          aria-label="Open Vidhi AI Legal Counsel"
+          aria-label="Open Vidhi AI Legal Counsel chat"
         >
-          <span className="w-2 h-2 rounded-full bg-[#58735C] ring-2 ring-[#58735C]/30 animate-pulse" />
+          <span className="w-2 h-2 rounded-full bg-[#58735C] ring-2 ring-[#58735C]/30 motion-safe:animate-pulse" aria-hidden="true" />
           <span className="font-serif tracking-wide">Ask Vidhi AI</span>
           <span className="text-[10px] font-mono text-[#C38A2E] bg-[#2E2C27] px-1.5 py-0.5 rounded">
             Gemini
@@ -849,5 +923,60 @@ export default function App() {
         </button>
       )}
     </div>
+  );
+}
+
+/** Shows how the last document was processed: offline mode, privacy steps and warnings. */
+function AnalysisNoticeBanner({
+  notes,
+  onDismiss,
+}: {
+  notes: NonNullable<IngestedDocument['processingNotes']>;
+  onDismiss: () => void;
+}) {
+  const offline = notes.aiMode === 'offline';
+  return (
+    <section
+      role="status"
+      aria-label="How this document was analysed"
+      className={`mb-5 rounded-lg border p-3 sm:p-4 text-xs leading-relaxed ${
+        offline ? 'bg-[#FAF3F1] border-[#EADBDA] text-[#6E3A31]' : 'bg-[#F4F8F4] border-[#CADBCB] text-[#34503A]'
+      }`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="space-y-1.5">
+          {offline ? (
+            <p className="font-semibold">
+              Offline mode: Gemini is not configured, so this analysis used simple keyword rules, not AI. Treat it as a rough checklist only.
+            </p>
+          ) : (
+            <p className="font-semibold">
+              Analysed with Gemini in {notes.chunkCount} part{notes.chunkCount === 1 ? '' : 's'}
+              {notes.cachedClauses > 0 ? ` (${notes.cachedClauses} standard clause${notes.cachedClauses === 1 ? '' : 's'} from cache)` : ''}.
+            </p>
+          )}
+          <p>
+            {notes.piiRedactedCount} personal identifier{notes.piiRedactedCount === 1 ? '' : 's'} masked before AI analysis. This document is
+            kept only in this browser tab and is cleared when you close or reload it.
+          </p>
+          {notes.injectionAttempts > 0 && (
+            <p className="font-semibold text-[#8E3A2E]">
+              Warning: this document contains {notes.injectionAttempts} instruction(s) aimed at AI tools. They were neutralised and flagged as a risk.
+            </p>
+          )}
+          {[...notes.warnings.filter((w) => !/tried to give instructions/.test(w)), ...notes.privacyNotes.filter((p) => !/processed in memory/.test(p))].map((w, i) => (
+            <p key={i}>{w}</p>
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="shrink-0 px-2 py-1 rounded border border-current/20 hover:bg-white/60"
+          aria-label="Dismiss analysis notice"
+        >
+          Dismiss
+        </button>
+      </div>
+    </section>
   );
 }

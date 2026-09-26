@@ -10,6 +10,9 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import { Language } from '../types';
+import { usePreferences } from '../context/PreferencesContext';
+import { ReadingLevelToggle } from './ReadingLevelToggle';
+import { readNdjson } from '../utils/analyzeDocument';
 
 export interface ChatMessageItem {
   id: string;
@@ -55,6 +58,8 @@ export const GeminiChatbot: React.FC<GeminiChatbotProps> = ({
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
   const [activeLang, setActiveLang] = useState<Language>(language);
+  const [streamingId, setStreamingId] = useState<string | null>(null);
+  const { readingLevel } = usePreferences();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -87,6 +92,16 @@ export const GeminiChatbot: React.FC<GeminiChatbotProps> = ({
     }
   }, [isOpen]);
 
+  // Escape closes the chat panel
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   const quickPrompts = [
@@ -112,48 +127,74 @@ export const GeminiChatbot: React.FC<GeminiChatbotProps> = ({
     setInput('');
     setIsLoading(true);
 
-    try {
-      const serverPayloadMessages = newHistory.map((m) => ({
-        role: m.role,
-        content: m.content,
-      }));
+    const botId = `bot-${Date.now()}`;
+    const appendToBot = (text: string) =>
+      setMessages((prev) => prev.map((m) => (m.id === botId ? { ...m, content: m.content + text } : m)));
 
-      const res = await fetch('/api/chat', {
+    try {
+      const res = await fetch('/api/chat/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: serverPayloadMessages,
+          messages: newHistory.map((m) => ({ role: m.role, content: m.content })),
           documentContext,
           language: activeLang,
           modelRole,
+          readingLevel,
         }),
       });
 
-      if (res.ok) {
-        const data = await res.json();
-        const assistantMsg: ChatMessageItem = {
-          id: `bot-${Date.now()}`,
-          role: 'assistant',
-          content: data.reply || 'No response generated.',
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          modelUsed: data.modelUsed || 'gemini-3.8-flash',
-        };
-        setMessages((prev) => [...prev, assistantMsg]);
-      } else {
-        throw new Error(`Server returned ${res.status}`);
+      if (!res.ok) {
+        let message = `Server returned ${res.status}`;
+        try {
+          const data = await res.json();
+          message = data.message || data.error || message;
+        } catch {}
+        throw new Error(message);
       }
-    } catch (err) {
-      console.warn('Chat request failed, providing local legal guidance:', err);
-      const fallbackMsg: ChatMessageItem = {
-        id: `bot-${Date.now()}`,
-        role: 'assistant',
-        content:
-          'Under standard Indian conveyancing practice (Registration Act 1908 & Transfer of Property Act 1882), all terms in the Sale Deed become non-negotiable once registered. We strongly recommend having an advocate draft a specific clause requiring physical vacant possession and an SBI Mortgage Release Deed as conditions precedent to final consideration release.',
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        modelUsed: 'gemini-3.8-flash (Offline Mode)',
-      };
-      setMessages((prev) => [...prev, fallbackMsg]);
+
+      let started = false;
+      await readNdjson(res, (event) => {
+        if (event.type === 'delta' && typeof event.text === 'string') {
+          if (!started) {
+            started = true;
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: botId,
+                role: 'assistant',
+                content: '',
+                timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                modelUsed: modelRole === 'deep' ? 'gemini-3.1-pro-preview' : modelRole === 'fast' ? 'gemini-3.1-flash-lite' : 'gemini-3.8-flash',
+              },
+            ]);
+            setStreamingId(botId);
+          }
+          appendToBot(event.text);
+        } else if (event.type === 'done') {
+          setMessages((prev) => prev.map((m) => (m.id === botId ? { ...m, modelUsed: event.modelUsed } : m)));
+        } else if (event.type === 'error') {
+          throw new Error(event.message || 'Chat failed');
+        }
+      });
+      if (!started) throw new Error('Empty response');
+    } catch (err: any) {
+      console.warn('Chat request failed:', err);
+      setMessages((prev) => [
+        ...prev.filter((m) => !(m.id === botId && !m.content)),
+        {
+          id: `bot-err-${Date.now()}`,
+          role: 'assistant',
+          content:
+            err?.message && /rate limit|too many/i.test(err.message)
+              ? err.message
+              : 'Sorry, the assistant could not be reached. Please check your connection and try again.',
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          modelUsed: 'Connection error',
+        },
+      ]);
     } finally {
+      setStreamingId(null);
       setIsLoading(false);
     }
   };
@@ -186,20 +227,23 @@ export const GeminiChatbot: React.FC<GeminiChatbotProps> = ({
 
   return (
     <div
+      role="dialog"
+      aria-modal="false"
+      aria-labelledby="vidhi-chat-title"
       className={`fixed z-50 transition-all duration-300 ${
         isExpanded
           ? 'inset-3 sm:inset-6'
-          : 'bottom-4 right-4 sm:bottom-6 sm:right-6 w-[calc(100vw-2rem)] sm:w-[460px] h-[640px] max-h-[85vh]'
+          : 'inset-0 sm:inset-auto sm:bottom-6 sm:right-6 sm:w-[460px] sm:h-[640px] sm:max-h-[85vh]'
       }`}
     >
-      <div className="w-full h-full bg-[#FCFBF7] border border-[#DDD9CE] rounded-xl shadow-2xl flex flex-col overflow-hidden text-[#1C1C19]">
+      <div className="w-full h-full bg-[#FCFBF7] border border-[#DDD9CE] sm:rounded-xl shadow-2xl flex flex-col overflow-hidden text-[#1C1C19]">
         {/* Header Bar */}
-        <header className="px-4 py-3 bg-[#FAF8F5] border-b border-[#DDD9CE] flex items-center justify-between gap-3 shrink-0">
+        <header className="px-3 sm:px-4 py-3 bg-[#FAF8F5] border-b border-[#DDD9CE] flex flex-wrap items-center justify-between gap-2 sm:gap-3 shrink-0">
           <div className="flex items-center gap-2.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-[#58735C]" />
+            <span className="w-2.5 h-2.5 rounded-full bg-[#58735C]" aria-hidden="true" />
             <div>
               <div className="flex items-center gap-2">
-                <span className="font-serif font-semibold text-sm tracking-tight text-[#1C1C19]">
+                <span id="vidhi-chat-title" className="font-serif font-semibold text-sm tracking-tight text-[#1C1C19]">
                   Vidhi AI Legal Counsel
                 </span>
                 <span className="text-[10px] font-mono uppercase font-semibold px-1.5 py-0.5 rounded bg-[#F0EBE0] text-[#73716A] border border-[#DDD9CE]">
@@ -221,8 +265,9 @@ export const GeminiChatbot: React.FC<GeminiChatbotProps> = ({
             <select
               value={modelRole}
               onChange={(e) => setModelRole(e.target.value as any)}
-              className="text-[11px] font-mono bg-white border border-[#DDD9CE] rounded px-1.5 py-1 text-[#1C1C19] focus:outline-none"
+              className="text-[11px] font-mono bg-white border border-[#DDD9CE] rounded px-1.5 py-1 text-[#1C1C19] max-w-[9.5rem]"
               title="Select Gemini intelligence level"
+              aria-label="AI model"
             >
               <option value="general">Gemini 3.8 Flash (General)</option>
               <option value="deep">Gemini 3.1 Pro (Deep Scrutiny)</option>
@@ -230,10 +275,12 @@ export const GeminiChatbot: React.FC<GeminiChatbotProps> = ({
             </select>
 
             {/* Language Selector */}
-            <div className="flex items-center text-[11px] font-mono bg-white border border-[#DDD9CE] rounded p-0.5">
+            <div role="group" aria-label="Answer language" className="flex items-center text-[11px] font-mono bg-white border border-[#DDD9CE] rounded p-0.5">
               {(['EN', 'HI', 'MR'] as Language[]).map((lang) => (
                 <button
                   key={lang}
+                  aria-pressed={activeLang === lang}
+                  lang={lang === 'EN' ? 'en' : lang === 'HI' ? 'hi' : 'mr'}
                   onClick={() => {
                     setActiveLang(lang);
                     if (onLanguageChange) onLanguageChange(lang);
@@ -252,8 +299,9 @@ export const GeminiChatbot: React.FC<GeminiChatbotProps> = ({
             {/* Expand / Minimize */}
             <button
               onClick={() => setIsExpanded(!isExpanded)}
-              className="p-1 rounded text-[#8C887B] hover:text-[#1C1C19] transition-colors"
+              className="hidden sm:block p-1.5 rounded text-[#8C887B] hover:text-[#1C1C19] transition-colors"
               title={isExpanded ? 'Restore window size' : 'Expand window'}
+              aria-label={isExpanded ? 'Restore chat window size' : 'Expand chat window'}
             >
               {isExpanded ? (
                 <Minimize2 className="w-3.5 h-3.5" />
@@ -265,8 +313,9 @@ export const GeminiChatbot: React.FC<GeminiChatbotProps> = ({
             {/* Reset */}
             <button
               onClick={handleResetChat}
-              className="p-1 rounded text-[#8C887B] hover:text-[#1C1C19] transition-colors"
+              className="p-1.5 rounded text-[#8C887B] hover:text-[#1C1C19] transition-colors"
               title="Reset conversation"
+              aria-label="Reset conversation"
             >
               <RotateCcw className="w-3.5 h-3.5" />
             </button>
@@ -274,13 +323,20 @@ export const GeminiChatbot: React.FC<GeminiChatbotProps> = ({
             {/* Close */}
             <button
               onClick={onClose}
-              className="p-1 rounded text-[#8C887B] hover:text-[#1C1C19] transition-colors"
+              className="p-1.5 rounded text-[#8C887B] hover:text-[#1C1C19] transition-colors"
               title="Close chat"
+              aria-label="Close chat"
             >
               <X className="w-4 h-4" />
             </button>
           </div>
         </header>
+
+        {/* Reading level for answers */}
+        <div className="px-3 sm:px-4 py-1.5 bg-[#FAF8F5] border-b border-[#E8E4D9] flex items-center justify-between gap-2">
+          <span className="text-[10px] font-mono uppercase tracking-wider text-[#8C887B]">Answer detail</span>
+          <ReadingLevelToggle language={activeLang} compact />
+        </div>
 
         {/* Grounding Context Indicator */}
         <div className="px-4 py-2 bg-[#F6F3EB] border-b border-[#E8E4D9] flex items-center justify-between text-[11px] font-mono text-[#6F6D65]">
@@ -294,7 +350,14 @@ export const GeminiChatbot: React.FC<GeminiChatbotProps> = ({
         </div>
 
         {/* Scrollable Message Thread */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4 font-sans text-xs">
+        <div
+          className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-4 font-sans text-xs"
+          role="log"
+          aria-live="polite"
+          aria-relevant="additions"
+          aria-busy={isLoading}
+          aria-label="Conversation"
+        >
           {messages.map((msg) => {
             const isUser = msg.role === 'user';
             return (
@@ -321,10 +384,13 @@ export const GeminiChatbot: React.FC<GeminiChatbotProps> = ({
                       : 'bg-white border border-[#DDD9CE] text-[#1C1C19] shadow-2xs rounded-tl-none font-serif'
                   }`}
                 >
-                  <p className="whitespace-pre-line leading-relaxed">{msg.content}</p>
+                  <p className="whitespace-pre-line leading-relaxed" lang={isUser ? undefined : activeLang === 'HI' ? 'hi' : activeLang === 'MR' ? 'mr' : 'en'}>
+                    {msg.content}
+                    {streamingId === msg.id && <span className="inline-block w-1.5 h-3.5 ml-0.5 align-middle bg-[#C38A2E] motion-safe:animate-pulse" aria-hidden="true" />}
+                  </p>
 
                   {/* Actions for Assistant Messages */}
-                  {!isUser && (
+                  {!isUser && streamingId !== msg.id && (
                     <div className="mt-2.5 pt-2 border-t border-[#F0ECE1] flex items-center justify-between text-[11px] font-mono text-[#8C887B]">
                       <button
                         onClick={() => handleCopy(msg.id, msg.content)}
@@ -359,8 +425,8 @@ export const GeminiChatbot: React.FC<GeminiChatbotProps> = ({
           })}
 
           {/* Loading Indicator */}
-          {isLoading && (
-            <div className="flex flex-col items-start space-y-1">
+          {isLoading && !streamingId && (
+            <div className="flex flex-col items-start space-y-1" role="status">
               <div className="px-1 font-mono text-[10px] text-[#8C887B]">
                 Vidhi Assistant · Formulating Plain-Language Scrutiny...
               </div>
@@ -402,6 +468,7 @@ export const GeminiChatbot: React.FC<GeminiChatbotProps> = ({
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Ask any question about your deed, clauses, or Indian property laws..."
+              aria-label="Your question"
               rows={2}
               className="flex-1 bg-transparent resize-none text-xs sm:text-[13px] text-[#1C1C19] placeholder-[#8C887B] focus:outline-none leading-relaxed"
             />
@@ -416,8 +483,8 @@ export const GeminiChatbot: React.FC<GeminiChatbotProps> = ({
             </button>
           </div>
           <div className="mt-1.5 flex items-center justify-between text-[10px] font-mono text-[#8C887B] px-1">
-            <span>Press Enter to send · Shift+Enter for new line</span>
-            <span>Strict Legal Literacy Mode</span>
+            <span>Enter to send · Shift+Enter for new line · Esc to close</span>
+            <span className="hidden sm:inline">Personal details are masked before sending</span>
           </div>
         </footer>
       </div>

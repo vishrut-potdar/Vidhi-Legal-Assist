@@ -34,8 +34,10 @@ import { DisclaimerBanner } from './DisclaimerBanner';
 import { AnnotationModal } from './AnnotationModal';
 import { DocumentAnnotationsPanel } from './DocumentAnnotationsPanel';
 import { AIClauseModal } from './AIClauseModal';
+import { BilingualText } from './BilingualText';
 import { deedPages, DocumentLine, DocumentPage } from '../data/documentPagesData';
 import { initialDocumentAnnotations } from '../data/mockData';
+import { activateOnKey } from '../utils/a11y';
 
 interface DocumentReviewViewProps {
   documentInfo: DocumentInfo;
@@ -224,7 +226,7 @@ export const DocumentReviewView: React.FC<DocumentReviewViewProps> = ({
         <div className="flex items-center gap-4">
           {/* Multilingual Switcher: EN / हिंदी / मराठी */}
           <div className="flex items-center gap-1 text-xs font-mono bg-[#22201C] px-2 py-1 rounded border border-[#33302A]">
-            <button
+            <button aria-pressed={language === 'EN'}
               onClick={() => onLanguageChange && onLanguageChange('EN')}
               className={`px-1.5 py-0.5 rounded transition-all ${
                 language === 'EN'
@@ -235,7 +237,7 @@ export const DocumentReviewView: React.FC<DocumentReviewViewProps> = ({
               EN
             </button>
             <span className="text-[#55524A]">/</span>
-            <button
+            <button aria-pressed={language === 'HI'}
               onClick={() => onLanguageChange && onLanguageChange('HI')}
               className={`px-1.5 py-0.5 rounded transition-all ${
                 language === 'HI'
@@ -246,7 +248,7 @@ export const DocumentReviewView: React.FC<DocumentReviewViewProps> = ({
               हिंदी
             </button>
             <span className="text-[#55524A]">/</span>
-            <button
+            <button aria-pressed={language === 'MR'}
               onClick={() => onLanguageChange && onLanguageChange('MR')}
               className={`px-1.5 py-0.5 rounded transition-all ${
                 language === 'MR'
@@ -274,7 +276,7 @@ export const DocumentReviewView: React.FC<DocumentReviewViewProps> = ({
       <div className="bg-[#FAF8F5] border border-[#DDD9CE] rounded-lg px-4 py-2.5 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2.5">
           <div className="inline-flex rounded-md p-0.5 bg-[#EAE6DB] border border-[#DDD9CE] text-xs">
-            <button
+            <button aria-pressed={activeTab === 'document'}
               onClick={() => setActiveTab('document')}
               className={`px-3 py-1 rounded transition-all font-medium ${
                 activeTab === 'document'
@@ -284,7 +286,7 @@ export const DocumentReviewView: React.FC<DocumentReviewViewProps> = ({
             >
               Document Paper
             </button>
-            <button
+            <button aria-pressed={activeTab === 'plain'}
               onClick={() => setActiveTab('plain')}
               className={`px-3 py-1 rounded transition-all font-medium ${
                 activeTab === 'plain'
@@ -299,7 +301,7 @@ export const DocumentReviewView: React.FC<DocumentReviewViewProps> = ({
           {activeTab === 'document' && (
             <div className="flex items-center gap-1.5 pl-2 border-l border-[#DDD9CE]">
               <span className="text-[11px] font-mono text-[#6F6D65] uppercase">Page:</span>
-              <button
+              <button aria-label="Previous page"
                 onClick={() => {
                   const pagesList = activePages.map((p) => p.pageNumber);
                   const currIdx = pagesList.indexOf(currentPageNumber);
@@ -312,7 +314,7 @@ export const DocumentReviewView: React.FC<DocumentReviewViewProps> = ({
                 <ChevronLeft className="w-3.5 h-3.5" />
               </button>
 
-              <select
+              <select aria-label="Go to page"
                 value={currentPageNumber}
                 onChange={(e) => setCurrentPageNumber(Number(e.target.value))}
                 className="text-xs font-mono font-semibold bg-white border border-[#DDD9CE] rounded px-2 py-1 text-[#1C1C19]"
@@ -324,7 +326,7 @@ export const DocumentReviewView: React.FC<DocumentReviewViewProps> = ({
                 ))}
               </select>
 
-              <button
+              <button aria-label="Next page"
                 onClick={() => {
                   const pagesList = activePages.map((p) => p.pageNumber);
                   const currIdx = pagesList.indexOf(currentPageNumber);
@@ -344,7 +346,7 @@ export const DocumentReviewView: React.FC<DocumentReviewViewProps> = ({
         {activeTab === 'document' && (
           <div className="flex items-center gap-2">
             {/* Annotate Mode Toggle */}
-            <button
+            <button aria-pressed={isAnnotateMode}
               onClick={() => setIsAnnotateMode(!isAnnotateMode)}
               className={`text-xs font-mono px-3 py-1.5 rounded-md border flex items-center gap-1.5 transition-all ${
                 isAnnotateMode
@@ -369,7 +371,7 @@ export const DocumentReviewView: React.FC<DocumentReviewViewProps> = ({
                   c === 'green' ? 'bg-[#10B981]' :
                   c === 'blue' ? 'bg-[#0EA5E9]' : 'bg-[#A855F7]';
                 return (
-                  <button
+                  <button aria-label={`Set default color: ${c}`} aria-pressed={isSelected}
                     key={c}
                     onClick={() => setActiveHighlightColor(c)}
                     className={`w-4 h-4 rounded-full ${dotColor} transition-transform ${
@@ -398,7 +400,7 @@ export const DocumentReviewView: React.FC<DocumentReviewViewProps> = ({
       {/* Mobile Column View Switcher (Visible on < lg screens) */}
       {activeTab === 'document' && (
         <div className="lg:hidden flex items-center bg-[#EAE6DB] p-1 rounded-md text-xs font-medium">
-          <button
+          <button aria-pressed={mobileColumn === 'findings'}
             onClick={() => setMobileColumn('findings')}
             className={`flex-1 py-1.5 rounded transition-all text-center ${
               mobileColumn === 'findings'
@@ -408,7 +410,7 @@ export const DocumentReviewView: React.FC<DocumentReviewViewProps> = ({
           >
             Risk Claims &amp; Findings ({findings.length})
           </button>
-          <button
+          <button aria-pressed={mobileColumn === 'paper'}
             onClick={() => setMobileColumn('paper')}
             className={`flex-1 py-1.5 rounded transition-all text-center ${
               mobileColumn === 'paper'
@@ -474,7 +476,7 @@ export const DocumentReviewView: React.FC<DocumentReviewViewProps> = ({
                 {isAnnotateMode && (
                   <div className="mt-2 bg-[#1C1C19] text-[#FAF8F5] text-[11px] font-mono px-2.5 py-1 rounded flex items-center justify-between">
                     <span>Annotate Mode Active: Click any line to add notes or highlight</span>
-                    <span className="text-[#C38A2E] cursor-pointer underline" onClick={() => setIsAnnotateMode(false)}>Done</span>
+                    <span role="button" tabIndex={0} onKeyDown={activateOnKey} className="text-[#C38A2E] cursor-pointer underline" onClick={() => setIsAnnotateMode(false)}>Done</span>
                   </div>
                 )}
               </div>
@@ -495,7 +497,7 @@ export const DocumentReviewView: React.FC<DocumentReviewViewProps> = ({
                       }`}
                     >
                       {/* Line content row */}
-                      <div
+                      <div role={line.isFlaggedFinding ? 'button' : undefined} tabIndex={line.isFlaggedFinding ? 0 : undefined} onKeyDown={activateOnKey}
                         onClick={() => {
                           if (line.isFlaggedFinding && line.findingId && !isAnnotateMode) {
                             setActiveFindingId(line.findingId);
@@ -550,7 +552,7 @@ export const DocumentReviewView: React.FC<DocumentReviewViewProps> = ({
                         </div>
 
                         {/* Quick Annotate Trigger Button on hover */}
-                        <div className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                        <div className="shrink-0 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity flex items-center gap-1">
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
@@ -558,6 +560,7 @@ export const DocumentReviewView: React.FC<DocumentReviewViewProps> = ({
                             }}
                             className="text-[10px] font-mono bg-white border border-[#DDD9CE] text-[#1C1C19] hover:bg-[#FAF8F5] px-1.5 py-0.5 rounded shadow-xs flex items-center gap-1"
                             title="Add sticky note or change highlight"
+                            aria-label={`${lineAnnotation ? 'Edit note' : 'Add note'} for line ${line.lineNumber}`}
                           >
                             <Highlighter className="w-3 h-3 text-[#C38A2E]" />
                             <span>{lineAnnotation ? 'Edit Note' : '+ Note'}</span>
@@ -593,7 +596,7 @@ export const DocumentReviewView: React.FC<DocumentReviewViewProps> = ({
                               </div>
 
                               <div className="flex items-center gap-1 opacity-80 group-hover/note:opacity-100">
-                                <button
+                                <button aria-label="Edit note"
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     handleLineClick(line);
@@ -603,7 +606,7 @@ export const DocumentReviewView: React.FC<DocumentReviewViewProps> = ({
                                 >
                                   <Edit2 className="w-3 h-3" />
                                 </button>
-                                <button
+                                <button aria-label="Delete note"
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     handleDelete(lineAnnotation.id);
@@ -795,7 +798,7 @@ export const DocumentReviewView: React.FC<DocumentReviewViewProps> = ({
               </span>
               <div className="flex items-center gap-1.5 text-xs">
                 <span className="text-[#8C887B] text-[11px]">Sort:</span>
-                <select
+                <select aria-label="Filter flagged points by severity"
                   value={selectedSeverityFilter}
                   onChange={(e) =>
                     setSelectedSeverityFilter(e.target.value as 'ALL' | Severity)
@@ -845,20 +848,23 @@ export const DocumentReviewView: React.FC<DocumentReviewViewProps> = ({
 
                     {/* Headline and plain explanation */}
                     <div className="space-y-1">
-                      <h4 className="font-serif text-sm sm:text-base font-semibold text-[#1C1C19] leading-snug">
-                        {language === 'HI' && finding.shortTitleHindi
-                          ? finding.shortTitleHindi
-                          : language === 'MR' && finding.shortTitleMarathi
-                          ? finding.shortTitleMarathi
-                          : finding.shortTitle}
-                      </h4>
-                      <p className="text-xs text-[#6F6D65] leading-relaxed">
-                        {language === 'HI' && finding.plainLanguageExplanationHindi
-                          ? finding.plainLanguageExplanationHindi
-                          : language === 'MR' && finding.plainLanguageExplanationMarathi
-                          ? finding.plainLanguageExplanationMarathi
-                          : finding.plainLanguageExplanation}
-                      </p>
+                      <BilingualText
+                        as="h4"
+                        language={language}
+                        en={finding.shortTitle}
+                        hi={finding.shortTitleHindi}
+                        mr={finding.shortTitleMarathi}
+                        className="font-serif text-sm sm:text-base font-semibold text-[#1C1C19] leading-snug"
+                        secondaryClassName="block mt-0.5 text-xs font-sans font-normal text-[#6F6D65]"
+                      />
+                      <BilingualText
+                        language={language}
+                        en={finding.plainLanguageExplanation}
+                        hi={finding.plainLanguageExplanationHindi}
+                        mr={finding.plainLanguageExplanationMarathi}
+                        className="text-xs text-[#6F6D65] leading-relaxed"
+                        secondaryClassName="block mt-1 text-[11px] text-[#8C887B]"
+                      />
                     </div>
 
                     {/* Source-Span Citation on Claim (Differentiator from generic AI) */}
@@ -908,7 +914,7 @@ export const DocumentReviewView: React.FC<DocumentReviewViewProps> = ({
                         AI Clause Analysis
                       </button>
 
-                      <button
+                      <button aria-pressed={finding.inAdvocateBrief}
                         onClick={() => onToggleBrief(finding.id)}
                         className={`px-3 py-1.5 text-xs font-medium rounded border transition-colors flex items-center gap-1.5 ${
                           finding.inAdvocateBrief

@@ -10,6 +10,10 @@ import {
   CheckCircle,
 } from 'lucide-react';
 import { Language } from '../types';
+import { AnalysisProgress, PartialFinding } from './AnalysisProgress';
+import { usePreferences } from '../context/PreferencesContext';
+import { useDialogA11y } from '../hooks/useDialogA11y';
+import { AnalysisStage, analyzeDocumentStream, prepareUpload, UploadPayload } from '../utils/analyzeDocument';
 
 export interface AnalyzedDocumentResult {
   id: string;
@@ -20,6 +24,19 @@ export interface AnalyzedDocumentResult {
   fullClauses: any[];
   missingDocuments: any[];
   extractedTextPreview?: string;
+  processingNotes?: {
+    aiMode: 'gemini' | 'offline';
+    extractionMethod: string;
+    piiRedactedCount: number;
+    injectionAttempts: number;
+    segmentCount: number;
+    chunkCount: number;
+    cachedClauses: number;
+    language: Language;
+    readingLevel: string;
+    privacyNotes: string[];
+    warnings: string[];
+  };
 }
 
 interface UploadModalProps {
@@ -77,9 +94,17 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   const [pastedText, setPastedText] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [processingStage, setProcessingStage] = useState<string>('');
+  const [stage, setStage] = useState<AnalysisStage>('parsing');
+  const [progress, setProgress] = useState<number>(0);
+  const [partials, setPartials] = useState<PartialFinding[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const { readingLevel } = usePreferences();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useDialogA11y<HTMLDivElement>(isOpen, () => {
+    if (!isProcessing) onClose();
+  });
 
   if (!isOpen) return null;
 
@@ -88,6 +113,13 @@ export const UploadModal: React.FC<UploadModalProps> = ({
       const file = e.target.files[0];
       setSelectedFile(file);
       setErrorMessage(null);
+    }
+  };
+
+  const handleDropZoneKey = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      fileInputRef.current?.click();
     }
   };
 
@@ -107,94 +139,69 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   const runAnalysis = async (customPayload?: { rawText?: string; fileName?: string }) => {
     setIsProcessing(true);
     setErrorMessage(null);
+    setStage('parsing');
+    setProgress(2);
+    setPartials([]);
+    setProcessingStage('Preparing document…');
+    const controller = new AbortController();
+    abortRef.current = controller;
 
     try {
-      let payload: any = {
-        language,
-      };
-
+      let payload: UploadPayload;
       if (customPayload) {
-        payload.rawText = customPayload.rawText;
-        payload.fileName = customPayload.fileName || 'Pasted Legal Document';
+        payload = { rawText: customPayload.rawText, fileName: customPayload.fileName || 'Pasted Legal Document' };
       } else if (activeTab === 'file' && selectedFile) {
-        payload.fileName = selectedFile.name;
-        payload.mimeType = selectedFile.type || 'application/pdf';
-
-        const isPdf = selectedFile.type === 'application/pdf' || selectedFile.name.endsWith('.pdf');
-        const isImage = selectedFile.type.startsWith('image/') || /\.(jpe?g|png|webp)$/i.test(selectedFile.name);
-
-        setProcessingStage(isImage ? 'Scanning image bytes for OCR analysis...' : 'Reading file bytes and preparing document stream...');
-        if (isPdf || isImage) {
-          // Read as Base64 for multimodal PDF or OCR image analysis
-          const base64Data = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => {
-              const res = reader.result as string;
-              const base64 = res.split(',')[1] || res;
-              resolve(base64);
-            };
-            reader.onerror = reject;
-            reader.readAsDataURL(selectedFile);
-          });
-          payload.fileBase64 = base64Data;
-          payload.mimeType = selectedFile.type || (isImage ? 'image/jpeg' : 'application/pdf');
-        } else {
-          // Read as text
-          const textData = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result as string);
-            reader.onerror = reject;
-            reader.readAsText(selectedFile);
-          });
-          payload.rawText = textData;
-        }
-      } else if (activeTab === 'paste') {
-        if (!pastedText.trim()) {
-          setErrorMessage('Please paste legal deed or contract text to analyze.');
-          setIsProcessing(false);
-          return;
-        }
-        payload.rawText = pastedText.trim();
-        payload.fileName = 'Pasted Contract Draft';
+        payload = await prepareUpload(selectedFile);
+      } else if (activeTab === 'paste' && pastedText.trim()) {
+        payload = { rawText: pastedText.trim(), fileName: 'Pasted Contract Draft' };
+      } else {
+        setErrorMessage('Please choose a file or paste legal deed or contract text to analyze.');
+        return;
       }
 
-      setProcessingStage('Sanitizing sensitive identifiers (PAN / Aadhaar / Bank details)...');
-      await new Promise((r) => setTimeout(r, 600));
+      const analyzedDoc = await analyzeDocumentStream(
+        { ...payload, language, readingLevel },
+        (event) => {
+          if (event.type === 'stage') {
+            setStage(event.stage);
+            setProgress(event.progress);
+            setProcessingStage(event.message);
+          } else if (event.type === 'partial') {
+            setPartials((prev) => [...prev, { clauseNumber: event.clauseNumber, title: event.title, riskLevel: event.riskLevel }]);
+          }
+        },
+        controller.signal
+      );
 
-      setProcessingStage('Transcribing clauses & section boundaries with Gemini 3.8 Flash...');
-      
-      const res = await fetch('/api/document/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      if (!res.ok) {
-        throw new Error(`Server returned error code ${res.status}`);
-      }
-
-      setProcessingStage('Auditing covenants against Transfer of Property Act & RERA...');
-      const analyzedDoc: AnalyzedDocumentResult = await res.json();
-
-      setProcessingStage('Formulating advocate queries and risk summary...');
-      await new Promise((r) => setTimeout(r, 500));
-
+      // Drop local copies once analysis is complete.
+      setSelectedFile(null);
+      setPastedText('');
       onUploadSuccess(analyzedDoc);
       onClose();
     } catch (err: any) {
-      console.error('Document analysis failed:', err);
-      setErrorMessage(
-        err.message || 'Failed to analyze document. Please check the file or try pasting contract text.'
-      );
+      if (err?.name === 'AbortError') {
+        setErrorMessage('Analysis cancelled.');
+      } else {
+        console.error('Document analysis failed:', err);
+        setErrorMessage(err?.message || 'Failed to analyze document. Please check the file or try pasting contract text.');
+      }
     } finally {
+      abortRef.current = null;
       setIsProcessing(false);
       setProcessingStage('');
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fade-in">
-      <div className="bg-[#FCFBF7] border border-[#DDD9CE] rounded-xl max-w-xl w-full p-6 shadow-2xl space-y-5 relative overflow-hidden text-[#1C1C19]">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-xs animate-fade-in">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="upload-dialog-title"
+        tabIndex={-1}
+        className="bg-[#FCFBF7] border border-[#DDD9CE] rounded-t-xl sm:rounded-xl max-w-xl w-full max-h-[92vh] overflow-y-auto p-4 sm:p-6 shadow-2xl space-y-5 relative text-[#1C1C19]"
+      >
         {/* Modal Header */}
         <div className="flex items-start justify-between pb-3 border-b border-[#F3F0E8]">
           <div>
@@ -206,54 +213,41 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                 Gemini 3.8 Flash
               </span>
             </div>
-            <h2 className="text-lg font-semibold text-[#1C1C19] font-serif mt-0.5">
+            <h2 id="upload-dialog-title" className="text-lg font-semibold text-[#1C1C19] font-serif mt-0.5">
               Analyze a Legal Document
             </h2>
             <p className="text-xs text-[#6F6D65]">
-              Upload any PDF draft or paste agreement text for instant statutory scrutiny.
+              Upload a PDF, Word file or photo, or paste agreement text for instant statutory scrutiny.
             </p>
           </div>
 
           <button
             onClick={onClose}
             disabled={isProcessing}
-            className="p-1 rounded-md text-[#96938A] hover:text-[#1C1C19] hover:bg-[#F3F0E8] disabled:opacity-50"
+            aria-label="Close upload dialog"
+            className="p-2 rounded-md text-[#96938A] hover:text-[#1C1C19] hover:bg-[#F3F0E8] disabled:opacity-50"
           >
-            <X className="w-5 h-5" />
+            <X className="w-5 h-5" aria-hidden="true" />
           </button>
         </div>
 
         {/* Live Processing State */}
         {isProcessing ? (
-          <div className="py-10 px-4 text-center space-y-4">
-            <div className="relative w-16 h-16 mx-auto flex items-center justify-center">
-              <div className="absolute inset-0 rounded-full border-4 border-[#F2E6C9] animate-pulse" />
-              <div className="absolute inset-2 rounded-full border-2 border-t-[#C38A2E] animate-spin" />
-              <Scan className="w-6 h-6 text-[#C38A2E]" />
-            </div>
-
-            <div className="space-y-1.5 max-w-sm mx-auto">
-              <h3 className="text-sm font-semibold text-[#1C1C19] font-serif">
-                Running Statutory Scrutiny Engine...
-              </h3>
-              <p className="text-xs text-[#6F6D65] font-mono leading-relaxed min-h-[36px]">
-                {processingStage || 'Processing document...'}
-              </p>
-            </div>
-
-            <div className="w-full bg-[#E8E4D9] h-1.5 rounded-full overflow-hidden max-w-xs mx-auto">
-              <div className="h-full bg-[#C38A2E] animate-pulse w-3/4 rounded-full" />
-            </div>
-            <p className="text-[10px] text-[#8C887B] font-mono">
-              PII is automatically masked before sending to Gemini API
-            </p>
-          </div>
+          <AnalysisProgress
+            stage={stage}
+            message={processingStage}
+            progress={progress}
+            partials={partials}
+            onCancel={() => abortRef.current?.abort()}
+          />
         ) : (
           /* Normal Ingestion Interface */
           <div className="space-y-4">
             {/* Tabs */}
-            <div className="grid grid-cols-3 gap-1.5 p-1 bg-[#F3F0E8] rounded-lg border border-[#DDD9CE] text-xs font-medium">
+            <div role="tablist" aria-label="Ways to add a document" className="grid grid-cols-3 gap-1.5 p-1 bg-[#F3F0E8] rounded-lg border border-[#DDD9CE] text-xs font-medium">
               <button
+                role="tab"
+                aria-selected={activeTab === 'file'}
                 onClick={() => setActiveTab('file')}
                 className={`py-1.5 rounded flex items-center justify-center gap-1.5 transition-all ${
                   activeTab === 'file'
@@ -265,6 +259,8 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                 <span>Upload PDF / File</span>
               </button>
               <button
+                role="tab"
+                aria-selected={activeTab === 'paste'}
                 onClick={() => setActiveTab('paste')}
                 className={`py-1.5 rounded flex items-center justify-center gap-1.5 transition-all ${
                   activeTab === 'paste'
@@ -276,6 +272,8 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                 <span>Paste Contract Text</span>
               </button>
               <button
+                role="tab"
+                aria-selected={activeTab === 'samples'}
                 onClick={() => setActiveTab('samples')}
                 className={`py-1.5 rounded flex items-center justify-center gap-1.5 transition-all ${
                   activeTab === 'samples'
@@ -290,7 +288,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
 
             {/* Error Message */}
             {errorMessage && (
-              <div className="p-3 bg-[#FAF3F1] border border-[#EADBDA] rounded-lg text-xs text-[#8E4A3F] flex items-start gap-2">
+              <div role="alert" className="p-3 bg-[#FAF3F1] border border-[#EADBDA] rounded-lg text-xs text-[#8E4A3F] flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                 <span>{errorMessage}</span>
               </div>
@@ -303,7 +301,9 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                   type="file"
                   ref={fileInputRef}
                   onChange={handleFileChange}
-                  accept=".pdf,.txt,.docx,.doc"
+                  accept=".pdf,.txt,.docx,image/*"
+                  tabIndex={-1}
+                  aria-hidden="true"
                   className="hidden"
                 />
 
@@ -311,6 +311,10 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                   onDrop={handleDrop}
                   onDragOver={handleDragOver}
                   onClick={() => fileInputRef.current?.click()}
+                  onKeyDown={handleDropZoneKey}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={selectedFile ? `Selected ${selectedFile.name}. Press to choose a different file` : 'Choose a file to analyze'}
                   className="border-2 border-dashed border-[#C9C4B7] hover:border-[#171714] rounded-lg p-7 text-center bg-[#F7F4EC]/40 hover:bg-[#F7F4EC] transition-all cursor-pointer space-y-2.5"
                 >
                   <div className="w-10 h-10 rounded-full bg-[#FCFBF7] border border-[#DDD9CE] flex items-center justify-center mx-auto text-[#C38A2E]">
@@ -323,7 +327,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                     <span className="text-[11px] text-[#8C887B] mt-0.5 block font-mono">
                       {selectedFile
                         ? `${(selectedFile.size / 1024).toFixed(1)} KB · Ready to analyze`
-                        : 'Supports PDF drafts, registered deeds, agreements, or plain text'}
+                        : 'PDF, Word (.docx), text, or a photo of the document (OCR) · up to 12 MB'}
                     </span>
                   </div>
                 </div>
@@ -350,6 +354,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
             {activeTab === 'paste' && (
               <div className="space-y-3">
                 <textarea
+                  aria-label="Paste contract text"
                   value={pastedText}
                   onChange={(e) => setPastedText(e.target.value)}
                   placeholder="Paste legal contract text, clauses, or draft agreement here (e.g., Sale Deed, Lease Agreement, Builder-Buyer Agreement)..."
@@ -378,14 +383,15 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                 </p>
 
                 <div className="space-y-2">
-                  <div
+                  <button
+                    type="button"
                     onClick={() =>
                       runAnalysis({
                         rawText: SAMPLE_SALE_DEED_TEXT,
                         fileName: 'Sale Deed — Flat 402, Kalyani Nagar',
                       })
                     }
-                    className="p-3 bg-[#F7F4EC] hover:bg-[#F2E6C9] rounded-lg border border-[#DDD9CE] cursor-pointer transition-colors space-y-1"
+                    className="w-full text-left p-3 bg-[#F7F4EC] hover:bg-[#F2E6C9] rounded-lg border border-[#DDD9CE] cursor-pointer transition-colors space-y-1"
                   >
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-semibold text-[#1C1C19]">
@@ -398,16 +404,17 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                     <p className="text-[11px] text-[#6F6D65]">
                       Flat 402, Kalyani Nagar, Pune · ₹86 Lakhs · Contains unreleased bank mortgage &amp; vague possession clauses.
                     </p>
-                  </div>
+                  </button>
 
-                  <div
+                  <button
+                    type="button"
                     onClick={() =>
                       runAnalysis({
                         rawText: SAMPLE_LEASE_TEXT,
                         fileName: 'Leave and License Agreement — Baner Flat',
                       })
                     }
-                    className="p-3 bg-[#F7F4EC] hover:bg-[#F2E6C9] rounded-lg border border-[#DDD9CE] cursor-pointer transition-colors space-y-1"
+                    className="w-full text-left p-3 bg-[#F7F4EC] hover:bg-[#F2E6C9] rounded-lg border border-[#DDD9CE] cursor-pointer transition-colors space-y-1"
                   >
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-semibold text-[#1C1C19]">
@@ -420,7 +427,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                     <p className="text-[11px] text-[#6F6D65]">
                       Flat 204, Baner, Pune · ₹35,000/mo · Contains unfair deposit deductions and 24-hr unilateral termination.
                     </p>
-                  </div>
+                  </button>
                 </div>
               </div>
             )}

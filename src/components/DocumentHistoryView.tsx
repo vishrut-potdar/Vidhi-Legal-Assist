@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { Language, DocumentInfo, DocumentVersion } from '../types';
 import { documentVersionsList, uiTranslations } from '../data/mockData';
+import { activateOnKey } from '../utils/a11y';
 
 interface DocumentHistoryViewProps {
   documentInfo: DocumentInfo;
@@ -165,7 +166,7 @@ textual revisions for consultation with your appointed advocate.
 
         {/* Global Action Buttons */}
         <div className="flex items-center gap-2 flex-wrap">
-          <button
+          <button aria-expanded={isCompareOpen}
             onClick={() => setIsCompareOpen(!isCompareOpen)}
             className={`px-3 py-2 rounded-lg border text-xs font-medium flex items-center gap-1.5 transition-colors shadow-xs ${
               isCompareOpen
@@ -228,7 +229,7 @@ textual revisions for consultation with your appointed advocate.
             const isBaseline = idx === 0;
 
             return (
-              <div
+              <div role="button" tabIndex={0} onKeyDown={activateOnKey} aria-pressed={selectedVersionId === ver.id}
                 key={ver.id}
                 onClick={() => setSelectedVersionId(ver.id)}
                 className={`p-3.5 rounded-lg border cursor-pointer transition-all ${
@@ -331,7 +332,7 @@ textual revisions for consultation with your appointed advocate.
             <div className="flex items-center gap-2 text-xs">
               <div className="flex items-center gap-1 bg-[#FCFBF7] px-2 py-1 rounded border border-[#DDD9CE]">
                 <span className="text-[#73716A]">Base:</span>
-                <select
+                <select aria-label="Base version"
                   value={compareBaseId}
                   onChange={(e) => setCompareBaseId(e.target.value)}
                   className="bg-transparent font-mono font-semibold text-[#1C1C19] outline-none"
@@ -348,7 +349,7 @@ textual revisions for consultation with your appointed advocate.
 
               <div className="flex items-center gap-1 bg-[#FCFBF7] px-2 py-1 rounded border border-[#DDD9CE]">
                 <span className="text-[#73716A]">Target:</span>
-                <select
+                <select aria-label="Compare with version"
                   value={compareTargetId}
                   onChange={(e) => setCompareTargetId(e.target.value)}
                   className="bg-transparent font-mono font-semibold text-[#1C1C19] outline-none"
@@ -588,7 +589,7 @@ textual revisions for consultation with your appointed advocate.
                       </div>
                     </div>
 
-                    <button
+                    <button aria-expanded={isExpanded} aria-label={isExpanded ? 'Collapse version details' : 'Expand version details'}
                       className="p-1.5 rounded-md hover:bg-[#F3F0E8] text-[#73716A] transition-colors"
                       title={isExpanded ? 'Collapse version details' : 'Expand version details'}
                     >
