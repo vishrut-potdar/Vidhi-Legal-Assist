@@ -18,6 +18,7 @@ import { analyzeDocumentStreaming, AnalysisEvent, DocumentAnalysisInput } from '
 import { enforceHttps, rateLimit, securityHeaders } from './security.js';
 import { hasGeminiKey, normalizeLanguage, normalizeReadingLevel } from './aiShared.js';
 import { loginHandler, logoutHandler, requireSession, sessionHandler } from './auth.js';
+import { answerGroundedQuestion } from './groundedQA.js';
 
 const MAX_UPLOAD_BYTES = 12 * 1024 * 1024; // decoded file size
 const ALLOWED_UPLOAD_TYPES = [
@@ -90,7 +91,7 @@ export function createApp() {
   const uploadLimiter = rateLimit({ windowMs: RATE_WINDOW, max: Number(process.env.RATE_LIMIT_UPLOAD) || 6, name: 'document analysis' });
 
   app.use('/api', apiLimiter);
-  app.use(['/api/pipeline', '/api/chat'], aiLimiter);
+  app.use(['/api/pipeline', '/api/chat', '/api/qa'], aiLimiter);
   app.use('/api/document', uploadLimiter);
 
   // Lets the client show whether real Gemini analysis or the offline rule engine is active.
@@ -146,6 +147,30 @@ export function createApp() {
     } catch (err: any) {
       console.error('Pipeline question error:', err?.message || err);
       res.status(500).json({ error: 'Failed to process question' });
+    }
+  });
+
+  // Grounded Q&A: context → answer → verification → approved or rejected (NDJSON stages, then result)
+  app.post('/api/qa/grounded', async (req, res) => {
+    const { question, document } = req.body || {};
+    if (!question || typeof question !== 'string') {
+      return res.status(400).json({ error: 'Question is required' });
+    }
+    const send = startNdjson(res);
+    try {
+      const result = await answerGroundedQuestion(
+        question,
+        document && typeof document === 'object' ? document : undefined,
+        normalizeLanguage(req.body.language),
+        normalizeReadingLevel(req.body.readingLevel),
+        (event) => send(event)
+      );
+      send({ type: 'result', result });
+    } catch (err: any) {
+      console.error('Grounded QA error:', err?.message || err);
+      send({ type: 'error', message: 'Failed to answer the question. Please try again.' });
+    } finally {
+      res.end();
     }
   });
 

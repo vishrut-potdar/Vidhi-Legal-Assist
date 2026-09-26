@@ -29,7 +29,7 @@ import {
 } from './data/mockData';
 import { Sidebar } from './components/Sidebar';
 import { UploadModal, AnalyzedDocumentResult } from './components/UploadModal';
-import { AskQuestionModal } from './components/AskQuestionModal';
+import { AskQuestionModal, GroundingDocument } from './components/AskQuestionModal';
 import { GeminiChatbot } from './components/GeminiChatbot';
 import { ReadingLevelToggle } from './components/ReadingLevelToggle';
 import { useAuth } from './components/AuthGate';
@@ -466,6 +466,42 @@ export default function App() {
 
   const advocateBriefCount = findings.filter((f) => f.inAdvocateBrief).length;
 
+  // Structured document for grounded Q&A: a short summary plus the clause texts the server searches.
+  const groundingDocument: GroundingDocument | undefined = activeDoc
+    ? {
+        title: documentInfo.title,
+        summary: [
+          currentSummaryData?.headline,
+          currentSummaryData?.parties
+            ? `Parties: ${currentSummaryData.parties.vendor} / ${currentSummaryData.parties.purchaser}.`
+            : '',
+          `Property: ${documentInfo.property}. Consideration: ${documentInfo.totalConsideration}.`,
+        ]
+          .filter(Boolean)
+          .join(' '),
+        clauses: currentFullClauses.length
+          ? currentFullClauses.map((c) => ({
+              clauseNumber: c.clauseNumber,
+              pageNumber: c.pageNumber,
+              title: c.title,
+              text: c.originalLegalText,
+            }))
+          : currentPages.flatMap((page) => {
+              // No clause breakdown available: group each page's lines by clause number.
+              const groups = new Map<number, string[]>();
+              page.lines.forEach((l) => {
+                const key = l.clauseNumber ?? 0;
+                groups.set(key, [...(groups.get(key) || []), l.text]);
+              });
+              return Array.from(groups, ([clauseNumber, lines]) => ({
+                clauseNumber,
+                pageNumber: page.pageNumber,
+                text: lines.join('\n'),
+              }));
+            }),
+      }
+    : undefined;
+
   // Grounds the chat in the document the user actually has open (the server masks PII again and caps the size).
   const chatDocumentContext = activeDoc
     ? [
@@ -872,7 +908,7 @@ export default function App() {
         onClose={() => setIsAskOpen(false)}
         language={language}
         initialQuery={askInitialQuery}
-        documentContext={chatDocumentContext}
+        groundingDocument={groundingDocument}
       />
 
       {/* Global Download Report Modal (loaded on demand) */}
