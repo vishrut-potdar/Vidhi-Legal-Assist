@@ -70,6 +70,7 @@ export function isCacheableBoilerplate(text: string): boolean {
   if (/\d/.test(body)) return false;
   if (/REDACTED|NEUTRALISED/.test(body)) return false;
   if (/₹|\brs\.?\s|\binr\b|lakh|crore/i.test(body)) return false;
-  if (/\b(?:shri|smt|mr|mrs|ms|dr|kumari)\.?\s+[A-Z]/.test(body)) return false;
+  // Honorific + capitalised word = a person's name (the honorific itself may be capitalised).
+  if (/\b(?:[Ss]hri|[Ss]mt|[Ss]ri|Mr|Mrs|Ms|Dr|[Kk]umari)\.?\s+[A-Z]/.test(body)) return false;
   return true;
 }

@@ -20,6 +20,8 @@ export function useDialogA11y<T extends HTMLElement>(isOpen: boolean, onClose: (
 
     const focusFirst = () => {
       if (!node) return;
+      // Don't steal focus if the user already moved into the dialog (e.g. started typing).
+      if (node.contains(document.activeElement) && document.activeElement !== node) return;
       const autofocus = node.querySelector<HTMLElement>('[data-autofocus]');
       const first = autofocus || node.querySelector<HTMLElement>(FOCUSABLE);
       (first || node).focus();

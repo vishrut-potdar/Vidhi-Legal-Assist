@@ -182,6 +182,7 @@ export const AskQuestionModal: React.FC<AskQuestionModalProps> = ({
           <div className="relative">
             <textarea
               aria-label="Your question about the document"
+              data-autofocus
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => {
