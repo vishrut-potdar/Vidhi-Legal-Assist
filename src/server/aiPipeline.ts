@@ -18,13 +18,13 @@
  */
 
 import { GoogleGenAI } from '@google/genai';
-import { glossaryItems } from '../data/mockData';
-import { applyMaskingLayer1, applyMaskingLayer2, maskPII, MaskedEntity } from './pii';
-import { UNTRUSTED_CONTENT_RULES, sanitizeUntrustedText, wrapUntrusted } from './security';
-import { ReadingLevel, getGeminiClient, hasGeminiKey, readingLevelInstruction } from './aiShared';
-import { TTLCache, hashKey, isCacheableBoilerplate, normalizeClauseText } from './cache';
-import { analyzeDocumentStreaming } from './documentAnalysis';
-import type { AnalyzedDocumentPayload, DocumentAnalysisInput } from './documentAnalysis';
+import { glossaryItems } from '../data/mockData.js';
+import { applyMaskingLayer1, applyMaskingLayer2, maskPII, MaskedEntity } from './pii.js';
+import { UNTRUSTED_CONTENT_RULES, sanitizeUntrustedText, wrapUntrusted } from './security.js';
+import { ReadingLevel, getGeminiClient, hasGeminiKey, readingLevelInstruction } from './aiShared.js';
+import { TTLCache, hashKey, isCacheableBoilerplate, normalizeClauseText } from './cache.js';
+import { analyzeDocumentStreaming } from './documentAnalysis.js';
+import type { AnalyzedDocumentPayload, DocumentAnalysisInput } from './documentAnalysis.js';
 
 export { applyMaskingLayer1, applyMaskingLayer2 };
 export type { MaskedEntity, AnalyzedDocumentPayload, DocumentAnalysisInput };

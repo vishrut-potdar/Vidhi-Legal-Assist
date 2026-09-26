@@ -103,11 +103,16 @@ export async function readNdjson(res: Response, onObject: (obj: any) => void): P
 }
 
 async function errorMessageFrom(res: Response): Promise<string> {
+  if (res.status === 413) {
+    return 'This file is too large to upload (the hosted server accepts about 3 MB). Try a smaller PDF, a photo of fewer pages, or paste the text instead.';
+  }
   try {
     const data = await res.json();
     return data.message || data.error || `Server returned ${res.status}`;
   } catch {
-    return res.status === 429 ? 'Too many requests. Please wait a minute and try again.' : `Server returned ${res.status}`;
+    if (res.status === 429) return 'Too many requests. Please wait a minute and try again.';
+    if (res.status === 404) return 'The analysis service is not available on this server (API returned 404). Check that the backend is deployed.';
+    return `Server returned ${res.status}`;
   }
 }
 
