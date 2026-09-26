@@ -8,6 +8,8 @@ export type OutputLanguage = 'EN' | 'HI' | 'MR';
 export type ReadingLevel = 'simple' | 'standard' | 'detailed';
 
 export const DEFAULT_MODEL = 'gemini-3.8-flash';
+/** Separate per-model quota, used as a fallback when the default model is rate limited. */
+export const LITE_MODEL = 'gemini-3.1-flash-lite';
 
 export function hasGeminiKey(): boolean {
   const key = process.env.GEMINI_API_KEY;
@@ -23,6 +25,66 @@ export function getGeminiClient(): GoogleGenAI {
     });
   }
   return client;
+}
+
+/* ---------------- Retry on rate limits / overload ---------------- */
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+function errorStatus(err: any): number {
+  const msg = String(err?.message || err || '');
+  return Number(err?.status || err?.code || (msg.match(/"code":\s*(\d{3})/) || msg.match(/\b(429|5\d\d)\b/) || [])[1]) || 0;
+}
+
+/** Delay before retrying, or null when retrying is pointless (daily quota, auth, bad request). */
+function retryDelayMs(err: any, attempt: number): number | null {
+  const msg = String(err?.message || err || '');
+  const status = errorStatus(err);
+  if (status !== 429 && status < 500) return null;
+  if (/PerDay|per day|daily/i.test(msg)) return null;
+  const hinted = msg.match(/retryDelay"?:\s*"?(\d+(?:\.\d+)?)s/) || msg.match(/retry in (\d+(?:\.\d+)?)\s*s/i);
+  if (hinted) {
+    const ms = Math.ceil(parseFloat(hinted[1]) * 1000);
+    return ms <= 12_000 ? ms : null; // don't hold the request open for long waits
+  }
+  return [1500, 4000][attempt] ?? null;
+}
+
+async function withRetry<T>(run: () => Promise<T>, maxRetries = 2): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await run();
+    } catch (err) {
+      const delay = attempt < maxRetries ? retryDelayMs(err, attempt) : null;
+      if (delay === null) throw err;
+      await sleep(delay);
+    }
+  }
+}
+
+type GenerateParams = Parameters<GoogleGenAI['models']['generateContent']>[0];
+
+/** generateContent with automatic retries on 429 / 5xx. */
+export function generateContentWithRetry(params: GenerateParams) {
+  return withRetry(() => getGeminiClient().models.generateContent(params));
+}
+
+/** generateContentStream with retries on 429 / 5xx (the error arrives before the first chunk). */
+export function generateContentStreamWithRetry(params: GenerateParams) {
+  return withRetry(() => getGeminiClient().models.generateContentStream(params));
+}
+
+/** Short, user-safe description of a Gemini API failure. */
+export function describeGeminiError(err: any): string {
+  const msg = String(err?.message || err || '');
+  const status = errorStatus(err);
+  if (status === 429 || /quota|rate limit|RESOURCE_EXHAUSTED/i.test(msg)) {
+    return /PerDay|per day|daily/i.test(msg) ? 'daily API quota used up' : 'API rate limit reached, try again in a minute';
+  }
+  if (/API key|PERMISSION_DENIED/i.test(msg) || status === 401 || status === 403) return 'API key rejected';
+  if (status === 404 || /NOT_FOUND/i.test(msg)) return 'model not available for this key';
+  if (status >= 500) return 'Gemini is temporarily overloaded, try again shortly';
+  return 'request failed';
 }
 
 export function normalizeLanguage(value: unknown): OutputLanguage {

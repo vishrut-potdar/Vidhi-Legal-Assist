@@ -14,7 +14,9 @@ import mammoth from 'mammoth';
 import { extractText as extractPdfText } from 'unpdf';
 import {
   DEFAULT_MODEL,
+  LITE_MODEL,
   OutputLanguage,
+  generateContentWithRetry,
   ReadingLevel,
   asSeverity,
   asString,
@@ -189,7 +191,7 @@ interface ClauseAnalysis {
 const MAX_DOC_CHARS = 300_000;
 const LINES_PER_PAGE = 25;
 const CHUNK_CHARS = 7000;
-const CHUNK_CONCURRENCY = 3;
+const CHUNK_CONCURRENCY = 2; // stays under free-tier requests-per-minute limits
 
 const clauseCache = new TTLCache<ClauseAnalysis>(500, 6 * 60 * 60 * 1000);
 export const getClauseCacheStats = () => ({ size: clauseCache.size, hits: clauseCache.hits, misses: clauseCache.misses });
@@ -287,7 +289,7 @@ async function ocrWithGemini(
     'Scanned pages and photos must be read by Gemini OCR before PII can be detected, so the image itself is sent for transcription only. All later analysis uses the masked text.'
   );
 
-  const response = await getGeminiClient().models.generateContent({
+  const response = await generateContentWithRetry({
     model: DEFAULT_MODEL,
     contents: [
       { inlineData: { data: buffer.toString('base64'), mimeType } },
@@ -494,13 +496,14 @@ function heuristicClauseAnalysis(segment: ClauseSegment): ClauseAnalysis {
 async function analyzeChunkWithGemini(
   segments: ClauseSegment[],
   language: OutputLanguage,
-  readingLevel: ReadingLevel
+  readingLevel: ReadingLevel,
+  model: string = DEFAULT_MODEL
 ): Promise<Map<string, ClauseAnalysis>> {
   const body = segments.map((s) => `[${s.id}] (Clause ${s.clauseNumber || '—'}, page ${s.pageNumber})\n${s.text}`).join('\n\n');
   const { wrapped } = wrapUntrusted('DOCUMENT_CLAUSES', body);
 
-  const response = await getGeminiClient().models.generateContent({
-    model: DEFAULT_MODEL,
+  const response = await generateContentWithRetry({
+    model,
     contents: [{ role: 'user', parts: [{ text: `Analyse these clauses:\n\n${wrapped}` }] }],
     config: {
       systemInstruction: clausePrompt(language, readingLevel),
@@ -557,7 +560,7 @@ Return ONLY valid JSON:
 }
 Personal identifiers appear as [REDACTED_...] tokens: keep them redacted.`;
 
-  const response = await getGeminiClient().models.generateContent({
+  const response = await generateContentWithRetry({
     model: DEFAULT_MODEL,
     contents: [
       {
@@ -648,10 +651,13 @@ export async function analyzeDocumentStreaming(input: DocumentAnalysisInput, emi
   await mapWithConcurrency(chunks, CHUNK_CONCURRENCY, async (chunk) => {
     let results = new Map<string, ClauseAnalysis>();
     if (useGemini) {
-      try {
-        results = await analyzeChunkWithGemini(chunk.segments, language, readingLevel);
-      } catch (err: any) {
-        console.warn(`Gemini chunk ${chunk.index + 1} failed, using rule-based analysis:`, err?.message || err);
+      for (const model of [DEFAULT_MODEL, LITE_MODEL]) {
+        try {
+          results = await analyzeChunkWithGemini(chunk.segments, language, readingLevel, model);
+          if (results.size > 0) break;
+        } catch (err: any) {
+          console.warn(`Gemini chunk ${chunk.index + 1} (${model}) failed:`, err?.message || err);
+        }
       }
     }
     for (const segment of chunk.segments) {

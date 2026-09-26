@@ -21,7 +21,16 @@ import { GoogleGenAI } from '@google/genai';
 import { glossaryItems } from '../data/mockData.js';
 import { applyMaskingLayer1, applyMaskingLayer2, maskPII, MaskedEntity } from './pii.js';
 import { UNTRUSTED_CONTENT_RULES, sanitizeUntrustedText, wrapUntrusted } from './security.js';
-import { DEFAULT_MODEL, ReadingLevel, getGeminiClient, hasGeminiKey, readingLevelInstruction } from './aiShared.js';
+import {
+  DEFAULT_MODEL,
+  LITE_MODEL,
+  ReadingLevel,
+  describeGeminiError,
+  generateContentStreamWithRetry,
+  generateContentWithRetry,
+  hasGeminiKey,
+  readingLevelInstruction,
+} from './aiShared.js';
 import { TTLCache, hashKey, isCacheableBoilerplate, normalizeClauseText } from './cache.js';
 import { analyzeDocumentStreaming } from './documentAnalysis.js';
 import type { AnalyzedDocumentPayload, DocumentAnalysisInput } from './documentAnalysis.js';
@@ -280,7 +289,7 @@ Format your response strictly as JSON with this schema:
 ${UNTRUSTED_CONTENT_RULES}`;
 
       const { wrapped } = wrapUntrusted('DOCUMENT', sanitizeUntrustedText(layer2.maskedText.slice(0, 4000)).text);
-      const response = await ai.models.generateContent({
+      const response = await generateContentWithRetry({
         model: 'gemini-3.8-flash',
         contents: [
           {
@@ -509,7 +518,7 @@ Respond ONLY with valid JSON matching this schema:
   ]
 }`;
 
-      const response = await ai.models.generateContent({
+      const response = await generateContentWithRetry({
         model: 'gemini-3.8-flash',
         contents: prompt,
         config: {
@@ -793,7 +802,7 @@ Respond strictly in JSON matching this schema:
   "citizenAction": "Actionable next step for the citizen or question to ask their advocate"
 }`;
 
-      const response = await ai.models.generateContent({
+      const response = await generateContentWithRetry({
         model: 'gemini-3.8-flash',
         contents: [
           {
@@ -943,7 +952,7 @@ Respond strictly in JSON matching this schema:
   "advocateQuestion": "Targeted question to ask the vendor's advocate"
 }`;
 
-      const response = await ai.models.generateContent({
+      const response = await generateContentWithRetry({
         model: 'gemini-3.8-flash',
         contents: [
           {
@@ -1082,21 +1091,21 @@ function chatFallbackReply(messages: ChatMessage[], language: 'EN' | 'HI' | 'MR'
   const lastUserMessage = [...messages].reverse().find((m) => m.role === 'user')?.content.toLowerCase() || '';
   let fallbackReply = '';
 
-  if (lastUserMessage.includes('encumbrance') || lastUserMessage.includes('ec')) {
+  if (/\bencumbrance\b|\bec\b|form 1[56]/.test(lastUserMessage)) {
     fallbackReply =
       'An Encumbrance Certificate (EC) is a record issued by the Sub-Registrar confirming whether the property has registered financial or legal charges. In Maharashtra, Form 15 lists all registered transactions and mortgages for the requested period (recommended: past 30 years). Form 16 is a "Nil Encumbrance" certificate stating no recorded encumbrances exist. Always insist on a Search Report from an advocate covering 30 years alongside the EC.';
-  } else if (lastUserMessage.includes('clause 4') || lastUserMessage.includes('mortgage') || lastUserMessage.includes('loan')) {
+  } else if (/\bmortgage\b|\bloan\b|\bbank\b/.test(lastUserMessage)) {
     fallbackReply =
-      'Clause 4 is a critical high-risk clause in your draft. It asks you to pay the balance consideration unconditionally before the vendor obtains an official Loan Satisfaction / Release Deed from State Bank of India. If the bank holds the original parent documents and an equitable mortgage, you risk buying an encumbered flat. You must require that the vendor produces an official foreclosure statement and executes a tripartite settlement or simultaneous mortgage release at registration.';
-  } else if (lastUserMessage.includes('possession') || lastUserMessage.includes('keys') || lastUserMessage.includes('clause 9')) {
+      'If the property has an existing bank loan, do not pay the balance until the seller gives you the bank\'s official foreclosure (loan closure) letter and the bank releases the original title documents. A safe approach is to pay the outstanding loan directly to the bank and register a release of mortgage at the same time as the sale.';
+  } else if (/\bpossession\b|\bkeys?\b|\bhandover\b/.test(lastUserMessage)) {
     fallbackReply =
-      'Clause 9 currently contains no definite handover deadline, stating only that possession will occur "in due course" after registration. Under statutory real estate practice, physical vacant possession with keys, society share certificate transfer, and maintenance clearance must be delivered simultaneously with execution at the Sub-Registrar desk. Do not register without keys in hand.';
-  } else if (lastUserMessage.includes('advocate') || lastUserMessage.includes('lawyer') || lastUserMessage.includes('question')) {
+      'A fair possession clause gives a fixed date for handing over vacant possession and keys, ideally on the day of registration, with a penalty if the seller is late. Be careful with words like "in due course" or "within a reasonable time", which leave the date open.';
+  } else if (/\badvocate\b|\blawyer\b|\bquestions?\b/.test(lastUserMessage)) {
     fallbackReply =
-      'Here are 3 priority questions to give your property advocate ahead of the 19 September registration:\n1. "Can we draft an addendum requiring an SBI Mortgage Release Deed prior to or simultaneously with final payment disbursement?"\n2. "How can we make physical handover of Flat 402 and parking space P-14 a mandatory condition precedent for execution?"\n3. "Does the Society NOC from Gulmohar Enclave CHSL confirm nil pending dues and transfer permission?"';
+      'Useful questions for your advocate before signing:\n1. Is the title clear, and have you checked a 30-year search report and encumbrance certificate?\n2. Is any payment due before the seller clears loans or dues on the property?\n3. Is there a fixed possession date with a penalty for delay?\n4. Are the indemnity and dispute-resolution clauses fair to both sides?';
   } else {
     fallbackReply =
-      'I am here to help you examine every aspect of your property documentation. For your Flat 402 Kalyani Nagar purchase, remember that all terms in the agreement become binding upon registration under the Registration Act, 1908. You can ask me to explain any clause, evaluate risks, or prepare talking points for your legal counsel.';
+      'I can explain clauses, property-law terms (stamp duty, registration, encumbrance certificates, RERA) and help you prepare questions for your advocate. Remember that the terms of a sale deed become binding once it is registered under the Registration Act, 1908.';
   }
 
   if (language === 'HI') {
@@ -1124,7 +1133,7 @@ export async function handleChatWithAI(
   if (hasGeminiKey()) {
     for (const model of modelsToTry(selectedModel)) {
       try {
-        const response = await getGeminiClient().models.generateContent({
+        const response = await generateContentWithRetry({
           model,
           contents,
           config: { systemInstruction, temperature: 0.6 },
@@ -1166,7 +1175,7 @@ export async function streamChatWithAI(
     for (const model of modelsToTry(selectedModel)) {
       let sentAny = false;
       try {
-        const stream = await getGeminiClient().models.generateContentStream({
+        const stream = await generateContentStreamWithRetry({
           model,
           contents,
           config: { systemInstruction, temperature: 0.6 },
@@ -1182,7 +1191,7 @@ export async function streamChatWithAI(
           return {
             modelUsed: model,
             offline: false,
-            notice: failed.length ? `${failed.join(', ')} is not available with this API key, so ${model} answered instead.` : undefined,
+            notice: failed.length ? `${failed.join(', ')} was unavailable (${lastError}), so ${model} answered instead.` : undefined,
           };
         }
       } catch (err: any) {
@@ -1205,20 +1214,9 @@ export async function streamChatWithAI(
   };
 }
 
-/** Selected model first, then the default model as a fallback. */
+/** Selected model first, then the default and lite models (each has its own quota). */
 function modelsToTry(selectedModel: string): string[] {
-  return selectedModel === DEFAULT_MODEL ? [selectedModel] : [selectedModel, DEFAULT_MODEL];
-}
-
-/** Short, user-safe description of a Gemini API failure. */
-function describeGeminiError(err: any): string {
-  const msg = String(err?.message || err || '');
-  const status = Number(err?.status || err?.code || (msg.match(/\b(4\d\d|5\d\d)\b/) || [])[1]);
-  if (status === 429 || /quota|rate limit|RESOURCE_EXHAUSTED/i.test(msg)) return 'API quota or rate limit reached';
-  if (status === 401 || status === 403 || /API key|PERMISSION_DENIED/i.test(msg)) return 'API key rejected';
-  if (status === 404 || /not found|NOT_FOUND/i.test(msg)) return 'model not available for this key';
-  if (status >= 500) return 'Gemini service error';
-  return 'request failed';
+  return Array.from(new Set([selectedModel, DEFAULT_MODEL, LITE_MODEL]));
 }
 
 /**
